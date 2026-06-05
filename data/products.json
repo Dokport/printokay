@@ -1,0 +1,65 @@
+[
+  {
+    "id": "pindsvin-1780670377245",
+    "name": "Pindsvin",
+    "description": "Et Lille sødt pindsvin som er på størrelse med en lomme",
+    "price": 2000,
+    "image": "/products/1780670239076.jpeg",
+    "emoji": "🖨️",
+    "category": "figur"
+  },
+  {
+    "id": "springedderkop-1780670543099",
+    "name": "Springedderkop",
+    "description": "En lille sød edderkop ",
+    "price": 2200,
+    "image": "/products/1780670466481.jpeg",
+    "emoji": "🖨️",
+    "category": "figur"
+  },
+  {
+    "id": "klikker-1780670705334",
+    "name": "Klikker",
+    "description": "En god ting at pille ved",
+    "price": 3900,
+    "image": "/products/1780670645777.jpeg",
+    "emoji": "🖨️",
+    "category": "fidget"
+  },
+  {
+    "id": "sde-bjrne--1780670930798",
+    "name": "Søde bjørne ",
+    "description": "2 søde bjørne fx. til veninderne",
+    "price": 3500,
+    "image": "/products/1780670861538.jpeg",
+    "emoji": "🖨️",
+    "category": "gadget"
+  },
+  {
+    "id": "en-fidget-1780671102931",
+    "name": "En fidget",
+    "description": "En fidget ",
+    "price": 3400,
+    "image": "/products/1780671021081.jpeg",
+    "emoji": "🦊",
+    "category": "fidget"
+  },
+  {
+    "id": "batman-logo-1780671276465",
+    "name": "Batman logo",
+    "description": "Sejt logo fra batman filmen",
+    "price": 3200,
+    "image": "/products/1780671153851.jpeg",
+    "emoji": "🖨️",
+    "category": "figur"
+  },
+  {
+    "id": "en-gyro--1780671958642",
+    "name": "En gyro ",
+    "description": "En nice gyro",
+    "price": 3700,
+    "image": "/products/1780671894318.jpeg",
+    "emoji": "🖨️",
+    "category": "fidget"
+  }
+]

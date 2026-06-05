@@ -1,0 +1,32 @@
+{
+  "siteName": "printOKAY",
+  "logoEmoji": "⭐",
+  "tagline": "3D printede figurer, fidgets og gadgets — lavet med kærlighed og en masse filament!",
+  "primaryColor": "#16a34a",
+  "accentColor": "#0891b2",
+  "bgColor": "#f0fdf4",
+  "heroTitle": "printOKAY",
+  "footerText": "Lavet med 💜 og en 3D printer",
+  "aboutName": "Hej! Jeg hedder [Dit navn]",
+  "aboutIntro": "Jeg har min egen 3D printer og printer alle mine produkter selv derhjemme. Hvert produkt bliver printet med omhu og kvalitetstjekket, inden det sendes afsted.",
+  "aboutExtra": "Jeg er altid åben for specialbestillinger — hvis du drømmer om et særligt produkt, så skriv til mig!",
+  "aboutEmail": "din@email.dk",
+  "deliveryText": "Levering med PostNord — 3-7 hverdage\nGratis afhentning kan aftales\nJeg laver altid en ny, hvis noget er gået galt under forsendelsen",
+  "categories": [
+    {
+      "id": "figur",
+      "label": "Figurer",
+      "emoji": "🦕"
+    },
+    {
+      "id": "fidget",
+      "label": "Fidgets",
+      "emoji": "🎲"
+    },
+    {
+      "id": "gadget",
+      "label": "Gadgets",
+      "emoji": "🔧"
+    }
+  ]
+}
