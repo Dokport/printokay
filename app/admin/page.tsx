@@ -608,12 +608,12 @@ export default function AdminPage() {
                 setTestError("");
                 try {
                   const size = (settings.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).find((s) => s.id === testGcode.sizeId) ?? DEFAULT_KEYRING_SETTINGS.sizes[1];
-                  const res = await authedFetch("/api/orders/test-gcode", {
+                  const res = await authedFetch("/api/orders/test-stl", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                       ...testGcode,
-                      fontSize: size.heightMm * 0.5, // rough estimate
+                      fontSize: 0, // auto-calculated in STL generator
                     }),
                   });
                   if (!res.ok) {
@@ -625,7 +625,7 @@ export default function AdminPage() {
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
                   a.href = url;
-                  a.download = `test_noglering_${testGcode.text}.gcode`;
+                  a.download = `test_noglering_${testGcode.text}.zip`;
                   a.click();
                   URL.revokeObjectURL(url);
                 } catch (err) {
@@ -637,9 +637,9 @@ export default function AdminPage() {
               className="bg-purple-600 text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-purple-700 transition-colors disabled:opacity-60 flex items-center gap-2"
             >
               {testGenerating ? (
-                <><span className="animate-spin">⚙️</span> Genererer G-code...</>
+                <><span className="animate-spin">⚙️</span> Genererer STL...</>
               ) : (
-                <>⬇️ Generer og download G-code</>
+                <>⬇️ Generer og download STL (ZIP)</>
               )}
             </button>
           </div>
@@ -730,30 +730,30 @@ export default function AdminPage() {
 
                         {/* Actions */}
                         <div className="flex flex-col gap-2 flex-shrink-0">
-                          {order.gcodeGenerated ? (
+                          {order.stlGenerated ? (
                             <a
-                              href={`/api/orders/${order.id}/gcode`}
+                              href={`/api/orders/${order.id}/stl`}
                               download
                               onClick={(e) => {
                                 // Add auth header via fetch + blob download
                                 e.preventDefault();
-                                authedFetch(`/api/orders/${order.id}/gcode`)
+                                authedFetch(`/api/orders/${order.id}/stl`)
                                   .then((r) => r.blob())
                                   .then((blob) => {
                                     const url = URL.createObjectURL(blob);
                                     const a = document.createElement("a");
                                     a.href = url;
-                                    a.download = `noglering_${order.config?.text ?? "unknown"}_${order.id}.gcode`;
+                                    a.download = `noglering_${order.config?.text ?? "unknown"}_${order.id}.zip`;
                                     a.click();
                                     URL.revokeObjectURL(url);
                                   });
                               }}
                               className="bg-blue-600 text-white text-xs px-3 py-2 rounded-xl font-semibold hover:bg-blue-700 transition-colors text-center"
                             >
-                              ⬇️ Download G-code
+                              ⬇️ Download STL
                             </a>
                           ) : (
-                            <span className="text-xs text-gray-400 italic text-center">G-code ikke klar</span>
+                            <span className="text-xs text-gray-400 italic text-center">STL ikke klar</span>
                           )}
                           <button
                             type="button"

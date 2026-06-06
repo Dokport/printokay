@@ -85,13 +85,57 @@ function KeyringPreview({
         ctx.bezierCurveTo(0, -hh * 0.6, hw, -hh * 0.8, hw, 0);
         ctx.bezierCurveTo(hw * 1.1, hh * 0.6, hw * 0.1, hh * 0.9, 0, hh * 0.5);
       } else {
-        // Rounded rectangle (auto)
-        const r = Math.min(kw, kh) * 0.15;
+        // Auto: rounded rectangle as canvas stand-in (actual shape is computed server-side)
+        const r = Math.min(kw, kh) * 0.2;
         ctx.roundRect(-kw / 2, -kh / 2, kw, kh, r);
       }
     };
 
-    // Fill base color
+    // Keyring hole dimensions (used for text positioning)
+    const holeRadius = 4 * scale;
+    const holeCy = -(kh / 2 - holeRadius - 2 * scale);
+
+    if (shapeType === "auto" && text) {
+      // Auto shape: draw bubble effect via thick strokeText (approximates the clipper shape)
+      const fontFamily = KEYRING_FONTS.find((f) => f.id === font)?.cssFamily ?? "sans-serif";
+      const fontSize = calcFontSize(text, font, size);
+      if (fontSize) {
+        const fontPx = fontSize * scale;
+        const marginPx = Math.min(kw, kh) * 0.15;
+        ctx.font = `${fontPx}px ${fontFamily}`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        const textY = holeRadius * 2 + 2 * scale + fontPx / 2 - kh / 2 + 4 * scale;
+        const ty = textY > 0 ? textY : fontPx / 4;
+
+        // 1. Thick stroke in base color = "bubble" shape around letters
+        ctx.save();
+        ctx.lineWidth = marginPx * 2;
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = baseColor || "#888888";
+        ctx.strokeText(text, 0, ty);
+        ctx.restore();
+
+        // 2. Fill keyring hole
+        ctx.beginPath();
+        ctx.arc(0, holeCy, holeRadius, 0, Math.PI * 2);
+        ctx.fillStyle = "#f9fafb";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.2)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // 3. Text fill in text color on top
+        ctx.fillStyle = textColor || "#ffffff";
+        ctx.fillText(text, 0, ty);
+
+        ctx.restore();
+        return; // early return — no need for the normal draw path
+      }
+    }
+
+    // Fill base color (heart/oval or auto fallback)
     drawShape();
     ctx.fillStyle = baseColor || "#888888";
     ctx.fill();
@@ -103,8 +147,6 @@ function KeyringPreview({
     ctx.stroke();
 
     // Draw keyring hole
-    const holeRadius = 4 * scale;
-    const holeCy = -(kh / 2 - holeRadius - 2 * scale);
     ctx.beginPath();
     ctx.arc(0, holeCy, holeRadius, 0, Math.PI * 2);
     ctx.fillStyle = "#f9fafb";
@@ -113,7 +155,7 @@ function KeyringPreview({
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Draw text
+    // Draw text (heart/oval shapes)
     if (text) {
       const fontFamily = KEYRING_FONTS.find((f) => f.id === font)?.cssFamily ?? "sans-serif";
       const fontSize = calcFontSize(text, font, size);

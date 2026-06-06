@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { isAdmin } from "@/lib/isAdmin";
-import { readOrders, createOrder, updateOrderStatus, saveGcode, markGcodeGenerated } from "@/lib/orders";
-import { generateKeyringGcode } from "@/lib/gcode";
+import { readOrders, createOrder, updateOrderStatus, saveStl, markStlGenerated } from "@/lib/orders";
+import { generateKeyringStl } from "@/lib/stl";
 import { DEFAULT_KEYRING_SETTINGS } from "@/lib/keyring";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 import fs from "fs";
@@ -60,22 +60,15 @@ export async function POST(req: NextRequest) {
       pricePaid: pricePaid ?? 0,
     });
 
-    // Generate G-code in background
-    if (!order.gcodeGenerated) {
+    // Generate STL in background
+    if (!order.stlGenerated) {
       try {
-        const gcode = await generateKeyringGcode(
-          keyringConfig,
-          size,
-          baseColorHex ?? "#000000",
-          textColorHex ?? "#ffffff",
-          baseFilamentName ?? "Base",
-          textFilamentName ?? "Tekst"
-        );
-        saveGcode(order.id, gcode);
-        markGcodeGenerated(order.id);
-      } catch (gcodeErr) {
-        console.error("G-code generation failed:", gcodeErr);
-        // Order is still created, G-code can be re-generated later
+        const { baseStl, textStl } = await generateKeyringStl(keyringConfig, size);
+        saveStl(order.id, baseStl, textStl);
+        markStlGenerated(order.id);
+      } catch (stlErr) {
+        console.error("STL generation failed:", stlErr);
+        // Order is still created, STL can be re-generated later
       }
     }
 
