@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { text, font, shapeType, sizeId, fontSize } = body;
+    const { text, font, shapeType, holePosition, sizeId, fontSize } = body;
 
     if (!text || !font || !shapeType || !sizeId) {
       return NextResponse.json(
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
       text,
       font,
       shapeType,
+      holePosition: holePosition ?? "top",
       sizeId,
       baseFilamentId: "",
       textFilamentId: "",

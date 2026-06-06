@@ -416,23 +416,42 @@ export async function generateKeyringStl(
   // 2. Determine the body outline + ring-hole position
   let body: P2[];
   let holeCX: number, holeCY: number;
+  const holePosition = config.holePosition ?? "top";
 
   if (config.shapeType === "auto" && allGroups.length) {
-    // Tab circle floats above the tallest letter so the hole never hits text.
-    const topY = Math.max(...allGroups.flatMap((g) => g.outer).map((p) => p.y));
-    holeCX = 0;
-    holeCY = topY + TAB_CLEARANCE_MM + TAB_RADIUS_MM;
-    const tab = circle(holeCX, holeCY, TAB_RADIUS_MM);
+    const allPts = allGroups.flatMap((g) => g.outer);
 
+    if (holePosition === "side") {
+      // Tab hangs to the LEFT of the leftmost letter, vertically centered on text.
+      const leftX  = Math.min(...allPts.map((p) => p.x));
+      const minY   = Math.min(...allPts.map((p) => p.y));
+      const maxY   = Math.max(...allPts.map((p) => p.y));
+      holeCX = leftX - TAB_CLEARANCE_MM - TAB_RADIUS_MM;
+      holeCY = (minY + maxY) / 2;
+    } else {
+      // Tab floats ABOVE the tallest letter so the hole never hits text.
+      const topY = Math.max(...allPts.map((p) => p.y));
+      holeCX = 0;
+      holeCY = topY + TAB_CLEARANCE_MM + TAB_RADIUS_MM;
+    }
+
+    const tab = circle(holeCX, holeCY, TAB_RADIUS_MM);
     const marginMm = Math.min(size.widthMm, size.heightMm) * 0.16;
     const bubble = bubbleAround([...allGroups.map((g) => g.outer), tab], marginMm);
     body = bubble ?? getShapePolygon("auto", size.widthMm, size.heightMm);
   } else {
-    // Heart / oval / fallback: fixed template, hole near the top.
+    // Heart / oval / fallback: fixed template.
     body = getShapePolygon(config.shapeType, size.widthMm, size.heightMm);
-    const topY = Math.max(...body.map((p) => p.y));
-    holeCX = 0;
-    holeCY = topY - HOLE_RADIUS_MM - 2.5;
+    if (holePosition === "side") {
+      // Place hole near the left edge of the template shape.
+      const leftX = Math.min(...body.map((p) => p.x));
+      holeCX = leftX + HOLE_RADIUS_MM + 2.5;
+      holeCY = 0;
+    } else {
+      const topY = Math.max(...body.map((p) => p.y));
+      holeCX = 0;
+      holeCY = topY - HOLE_RADIUS_MM - 2.5;
+    }
   }
 
   const ringHole = circle(holeCX, holeCY, HOLE_RADIUS_MM);

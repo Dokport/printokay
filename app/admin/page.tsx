@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Product, formatPrice, MATERIALS } from "@/lib/products";
 import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_THEMES } from "@/lib/settings";
-import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES } from "@/lib/keyring";
+import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
 import type { KeyringOrder } from "@/lib/orders";
 import Image from "next/image";
 
@@ -40,7 +40,7 @@ export default function AdminPage() {
   const [ordersLoading, setOrdersLoading] = useState(false);
 
   // Test G-code state
-  const EMPTY_TEST = { text: "Emma", font: "Roboto-Bold", shapeType: "auto", sizeId: "medium", baseColorHex: "#7c3aed", textColorHex: "#ffffff", baseFilamentName: "Lilla PLA", textFilamentName: "Hvid PLA" };
+  const EMPTY_TEST = { text: "Emma", font: "Roboto-Bold", shapeType: "auto", holePosition: "top", sizeId: "medium", baseColorHex: "#7c3aed", textColorHex: "#ffffff", baseFilamentName: "Lilla PLA", textFilamentName: "Hvid PLA" };
   const [testGcode, setTestGcode] = useState(EMPTY_TEST);
   const [testGenerating, setTestGenerating] = useState(false);
   const [testError, setTestError] = useState("");
@@ -567,6 +567,17 @@ export default function AdminPage() {
                   className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
                   {KEYRING_SHAPES.map((s) => (
                     <option key={s.id} value={s.id}>{s.emoji} {s.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Hole position */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-gray-600">Hul-placering</label>
+                <select value={testGcode.holePosition} onChange={(e) => setTestGcode((t) => ({ ...t, holePosition: e.target.value }))}
+                  className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
+                  {KEYRING_HOLE_POSITIONS.map((h) => (
+                    <option key={h.id} value={h.id}>{h.emoji} {h.label}</option>
                   ))}
                 </select>
               </div>

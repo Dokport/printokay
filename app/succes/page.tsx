@@ -31,6 +31,7 @@ export default function SuccesPage() {
             text: kd.text,
             font: kd.font,
             shapeType: kd.shapeType,
+            holePosition: kd.holePosition ?? "top",
             sizeId: kd.sizeId,
             baseFilamentId: kd.baseFilamentId,
             textFilamentId: kd.textFilamentId,

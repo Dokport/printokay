@@ -101,6 +101,7 @@ export async function POST(req: NextRequest) {
         keyringBaseColorHex: keyringMeta.baseColorHex,
         keyringTextColorHex: keyringMeta.textColorHex,
         keyringFontSize: String(keyringMeta.fontSize),
+        keyringHolePosition: keyringMeta.holePosition ?? "top",
         keyringPrice: String(keyringMeta.price),
       },
     }),

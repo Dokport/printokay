@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useCart } from "@/lib/cartContext";
-import { KEYRING_FONTS, KEYRING_SHAPES, calcFontSize, calcPrice, validateConfig } from "@/lib/keyring";
+import { KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS, calcFontSize, calcPrice, validateConfig } from "@/lib/keyring";
 import type { KeyringSizeOption, KeyringSettings } from "@/lib/keyring";
 import type { FilamentSpool } from "@/lib/settings";
 import { DEFAULT_KEYRING_SETTINGS } from "@/lib/keyring";
@@ -23,6 +23,7 @@ function KeyringPreview({
   text,
   font,
   shapeType,
+  holePosition,
   size,
   baseColor,
   textColor,
@@ -30,6 +31,7 @@ function KeyringPreview({
   text: string;
   font: string;
   shapeType: string;
+  holePosition: "top" | "side";
   size: KeyringSizeOption | null;
   baseColor: string;
   textColor: string;
@@ -97,24 +99,35 @@ function KeyringPreview({
 
     if (shapeType === "auto" && text) {
       // Auto shape: the bubble follows the text (thick round stroke) and the ring
-      // hole sits in a small tab above the letters — matching the generated STL.
+      // hole sits in a small tab — above or to the side — matching the generated STL.
       const fontFamily = KEYRING_FONTS.find((f) => f.id === font)?.cssFamily ?? "sans-serif";
       const fontSize = calcFontSize(text, font, size);
       if (fontSize) {
         const fontPx = fontSize * scale;
         const marginPx = Math.min(size.widthMm, size.heightMm) * 0.16 * scale;
-        const tabR = 5.5 * scale;                 // tab radius (mm → px)
-        const ringR = 2.5 * scale;                // ring hole radius
+        const tabR = 5.5 * scale;   // tab radius (mm → px)
+        const ringR = 2.5 * scale;  // ring hole radius
         const clearancePx = 1 * scale;
-
-        // Vertically center the [tab + gap + text] stack around the origin.
-        const ty = (clearancePx + 2 * tabR - marginPx) / 2;
-        const tabCy = ty - fontPx / 2 - clearancePx - tabR;
 
         ctx.font = `${fontPx}px ${fontFamily}`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.lineJoin = "round";
+
+        let ty: number, tabCx: number, tabCy: number;
+
+        if (holePosition === "side") {
+          // Tab to the LEFT — text centered, tab hangs off the left side.
+          ty = 0;
+          const textHalfW = ctx.measureText(text).width / 2;
+          tabCx = -textHalfW - clearancePx - tabR;
+          tabCy = 0;
+        } else {
+          // Tab ABOVE — shift text down so [tab + gap + text] is centered.
+          ty = (clearancePx + 2 * tabR - marginPx) / 2;
+          tabCx = 0;
+          tabCy = ty - fontPx / 2 - clearancePx - tabR;
+        }
 
         // 1. Bubble around the letters (thick stroke in base color)
         ctx.save();
@@ -123,15 +136,15 @@ function KeyringPreview({
         ctx.strokeText(text, 0, ty);
         ctx.restore();
 
-        // 2. Tab disc above the text (base color) — merges with the bubble
+        // 2. Tab disc (base color) — merges with the bubble in the actual STL
         ctx.beginPath();
-        ctx.arc(0, tabCy, tabR, 0, Math.PI * 2);
+        ctx.arc(tabCx, tabCy, tabR, 0, Math.PI * 2);
         ctx.fillStyle = baseColor || "#888888";
         ctx.fill();
 
         // 3. Ring hole punched through the tab
         ctx.beginPath();
-        ctx.arc(0, tabCy, ringR, 0, Math.PI * 2);
+        ctx.arc(tabCx, tabCy, ringR, 0, Math.PI * 2);
         ctx.fillStyle = "#f9fafb";
         ctx.fill();
         ctx.strokeStyle = "rgba(0,0,0,0.18)";
@@ -189,7 +202,7 @@ function KeyringPreview({
     }
 
     ctx.restore();
-  }, [text, font, shapeType, size, baseColor, textColor]);
+  }, [text, font, shapeType, holePosition, size, baseColor, textColor]);
 
   return (
     <canvas
@@ -289,6 +302,7 @@ export default function NøgleringPage() {
   const [text, setText] = useState("");
   const [font, setFont] = useState(KEYRING_FONTS[0].id);
   const [shapeType, setShapeType] = useState<"auto" | "heart" | "oval">("auto");
+  const [holePosition, setHolePosition] = useState<"top" | "side">("top");
   const [sizeId, setSizeId] = useState<string | null>(null);
   const [baseFilamentId, setBaseFilamentId] = useState("");
   const [textFilamentId, setTextFilamentId] = useState("");
@@ -327,7 +341,7 @@ export default function NøgleringPage() {
 
   const validation = validateConfig(
     {
-      text, font, shapeType,
+      text, font, shapeType, holePosition,
       sizeId: sizeId ?? "",
       baseFilamentId,
       textFilamentId,
@@ -361,6 +375,7 @@ export default function NøgleringPage() {
         text,
         font,
         shapeType,
+        holePosition,
         sizeId: selectedSize.id,
         sizeLabel: selectedSize.label,
         baseFilamentId,
@@ -492,6 +507,32 @@ export default function NøgleringPage() {
             </div>
           </div>
 
+          {/* Hole position selector */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">Hul til nøglering</label>
+            <div className="flex gap-2">
+              {KEYRING_HOLE_POSITIONS.map((h) => {
+                const isSelected = holePosition === h.id;
+                return (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => setHolePosition(h.id as "top" | "side")}
+                    className="flex flex-col items-center gap-1 flex-1 py-2.5 rounded-xl border-2 transition-all"
+                    style={{
+                      borderColor: isSelected ? primaryColor : "#e5e7eb",
+                      backgroundColor: isSelected ? `color-mix(in srgb, ${primaryColor} 8%, white)` : "white",
+                    }}
+                  >
+                    <span className="text-xl">{h.emoji}</span>
+                    <span className="text-xs font-medium" style={{ color: isSelected ? primaryColor : "#6b7280" }}>{h.label}</span>
+                    <span className="text-xs text-gray-400 text-center leading-tight px-1">{h.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Color selection */}
           {inStockFilaments.length > 0 ? (
             <div className="flex flex-col gap-3">
@@ -533,6 +574,7 @@ export default function NøgleringPage() {
             text={text}
             font={font}
             shapeType={shapeType}
+            holePosition={holePosition}
             size={selectedSize}
             baseColor={baseFil?.colorHex ?? "#7c3aed"}
             textColor={textFil?.colorHex ?? "#ffffff"}

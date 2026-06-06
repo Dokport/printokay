@@ -20,6 +20,7 @@ export type KeyringConfig = {
   text: string;
   font: string;          // "Roboto-Bold" | "Pacifico-Regular" | "BebasNeue-Regular"
   shapeType: "auto" | "heart" | "oval" | "star";
+  holePosition: "top" | "side"; // "top" = tab above text, "side" = tab left of text
   sizeId: string;        // refers to KeyringSizeOption.id
   baseFilamentId: string;
   textFilamentId: string;
@@ -54,6 +55,11 @@ export const KEYRING_SHAPES = [
   { id: "auto",  label: "Automatisk", emoji: "⬛", description: "Tilpasses teksten" },
   { id: "heart", label: "Hjerte",     emoji: "❤️", description: "Hjerteform" },
   { id: "oval",  label: "Oval",       emoji: "⬭",  description: "Oval form" },
+];
+
+export const KEYRING_HOLE_POSITIONS = [
+  { id: "top",  label: "Øverst",   emoji: "⬆️", description: "Hullet sidder over teksten" },
+  { id: "side", label: "I siden",  emoji: "⬅️", description: "Hullet sidder til venstre for teksten" },
 ];
 
 // ─── Price calculation ────────────────────────────────────────────────────────

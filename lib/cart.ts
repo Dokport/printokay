@@ -13,6 +13,7 @@ export type KeyringCartData = {
   text: string;
   font: string;
   shapeType: string;
+  holePosition: "top" | "side";
   sizeId: string;
   sizeLabel: string;
   baseFilamentId: string;
