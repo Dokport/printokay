@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
     // Generate STL in background
     if (!order.stlGenerated) {
       try {
-        const { baseStl, textStl } = await generateKeyringStl(keyringConfig, size);
-        saveStl(order.id, baseStl, textStl);
+        const stl = await generateKeyringStl(keyringConfig, size);
+        saveStl(order.id, stl);
         markStlGenerated(order.id);
       } catch (stlErr) {
         console.error("STL generation failed:", stlErr);

@@ -91,47 +91,59 @@ function KeyringPreview({
       }
     };
 
-    // Keyring hole dimensions (used for text positioning)
+    // Keyring hole dimensions for heart/oval (auto computes its own below)
     const holeRadius = 4 * scale;
     const holeCy = -(kh / 2 - holeRadius - 2 * scale);
 
     if (shapeType === "auto" && text) {
-      // Auto shape: draw bubble effect via thick strokeText (approximates the clipper shape)
+      // Auto shape: the bubble follows the text (thick round stroke) and the ring
+      // hole sits in a small tab above the letters — matching the generated STL.
       const fontFamily = KEYRING_FONTS.find((f) => f.id === font)?.cssFamily ?? "sans-serif";
       const fontSize = calcFontSize(text, font, size);
       if (fontSize) {
         const fontPx = fontSize * scale;
-        const marginPx = Math.min(kw, kh) * 0.15;
+        const marginPx = Math.min(size.widthMm, size.heightMm) * 0.16 * scale;
+        const tabR = 5.5 * scale;                 // tab radius (mm → px)
+        const ringR = 2.5 * scale;                // ring hole radius
+        const clearancePx = 1 * scale;
+
+        // Vertically center the [tab + gap + text] stack around the origin.
+        const ty = (clearancePx + 2 * tabR - marginPx) / 2;
+        const tabCy = ty - fontPx / 2 - clearancePx - tabR;
+
         ctx.font = `${fontPx}px ${fontFamily}`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
+        ctx.lineJoin = "round";
 
-        const textY = holeRadius * 2 + 2 * scale + fontPx / 2 - kh / 2 + 4 * scale;
-        const ty = textY > 0 ? textY : fontPx / 4;
-
-        // 1. Thick stroke in base color = "bubble" shape around letters
+        // 1. Bubble around the letters (thick stroke in base color)
         ctx.save();
         ctx.lineWidth = marginPx * 2;
-        ctx.lineJoin = "round";
         ctx.strokeStyle = baseColor || "#888888";
         ctx.strokeText(text, 0, ty);
         ctx.restore();
 
-        // 2. Fill keyring hole
+        // 2. Tab disc above the text (base color) — merges with the bubble
         ctx.beginPath();
-        ctx.arc(0, holeCy, holeRadius, 0, Math.PI * 2);
+        ctx.arc(0, tabCy, tabR, 0, Math.PI * 2);
+        ctx.fillStyle = baseColor || "#888888";
+        ctx.fill();
+
+        // 3. Ring hole punched through the tab
+        ctx.beginPath();
+        ctx.arc(0, tabCy, ringR, 0, Math.PI * 2);
         ctx.fillStyle = "#f9fafb";
         ctx.fill();
-        ctx.strokeStyle = "rgba(0,0,0,0.2)";
+        ctx.strokeStyle = "rgba(0,0,0,0.18)";
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // 3. Text fill in text color on top
+        // 4. The raised letters (text color)
         ctx.fillStyle = textColor || "#ffffff";
         ctx.fillText(text, 0, ty);
 
         ctx.restore();
-        return; // early return — no need for the normal draw path
+        return;
       }
     }
 

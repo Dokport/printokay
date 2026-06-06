@@ -42,22 +42,17 @@ export function writeOrders(orders: KeyringOrder[]): void {
   fs.writeFileSync(ORDERS_PATH, JSON.stringify(orders, null, 2));
 }
 
-export function saveStl(orderId: string, baseStl: Buffer, textStl: Buffer): void {
+export function saveStl(orderId: string, stl: Buffer): void {
   if (!fs.existsSync(STL_DIR)) {
     fs.mkdirSync(STL_DIR, { recursive: true });
   }
-  fs.writeFileSync(path.join(STL_DIR, `${orderId}-base.stl`), baseStl);
-  fs.writeFileSync(path.join(STL_DIR, `${orderId}-text.stl`), textStl);
+  fs.writeFileSync(path.join(STL_DIR, `${orderId}.stl`), stl);
 }
 
-export function readStl(orderId: string): { baseStl: Buffer; textStl: Buffer } | null {
-  const basePath = path.join(STL_DIR, `${orderId}-base.stl`);
-  const textPath = path.join(STL_DIR, `${orderId}-text.stl`);
-  if (!fs.existsSync(basePath) || !fs.existsSync(textPath)) return null;
-  return {
-    baseStl: fs.readFileSync(basePath),
-    textStl: fs.readFileSync(textPath),
-  };
+export function readStl(orderId: string): Buffer | null {
+  const stlPath = path.join(STL_DIR, `${orderId}.stl`);
+  if (!fs.existsSync(stlPath)) return null;
+  return fs.readFileSync(stlPath);
 }
 
 export function createOrder(data: Omit<KeyringOrder, "id" | "createdAt" | "status" | "stlGenerated">): KeyringOrder {

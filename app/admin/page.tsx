@@ -625,7 +625,7 @@ export default function AdminPage() {
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
                   a.href = url;
-                  a.download = `test_noglering_${testGcode.text}.zip`;
+                  a.download = `test_noglering_${testGcode.text}.stl`;
                   a.click();
                   URL.revokeObjectURL(url);
                 } catch (err) {
@@ -639,9 +639,15 @@ export default function AdminPage() {
               {testGenerating ? (
                 <><span className="animate-spin">⚙️</span> Genererer STL...</>
               ) : (
-                <>⬇️ Generer og download STL (ZIP)</>
+                <>⬇️ Generer og download STL</>
               )}
             </button>
+
+            <div className="mt-4 text-xs text-gray-500 bg-gray-50 rounded-xl p-3 leading-relaxed">
+              <p className="font-semibold text-gray-600 mb-1">🎨 2 farver i BambuStudio</p>
+              <p>Importér STL&apos;en, og tilføj et <span className="font-medium">filamentskift ved Z = 2,4 mm</span>.
+              Alt under 2,4 mm printes i basisfarven, og de hævede bogstaver ovenover i tekstfarven.</p>
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl p-6 shadow-sm">
@@ -743,7 +749,7 @@ export default function AdminPage() {
                                     const url = URL.createObjectURL(blob);
                                     const a = document.createElement("a");
                                     a.href = url;
-                                    a.download = `noglering_${order.config?.text ?? "unknown"}_${order.id}.zip`;
+                                    a.download = `noglering_${order.config?.text ?? "unknown"}_${order.id}.stl`;
                                     a.click();
                                     URL.revokeObjectURL(url);
                                   });
