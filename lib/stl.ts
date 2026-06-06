@@ -2,10 +2,16 @@
  * Binary STL generator for printOKAY keyring configurator.
  *
  * Generates two STL files for 2-color printing in BambuStudio:
- *   base.stl  — the keyring body (0 → BASE_HEIGHT_MM)
+ *   base.stl  — the keyring body (0 → BASE_HEIGHT_MM) with ring hole
  *   text.stl  — the raised text letters (BASE_HEIGHT_MM → TOTAL_HEIGHT_MM)
  *
- * Import both into BambuStudio as multi-part object, assign filament colors.
+ * Coordinate convention throughout this file:
+ *   X/Y in mm, Y-axis points UP (math convention, matching opentype.js after Y-flip)
+ *   Z is print height. STL outward normals use right-hand CCW winding.
+ *
+ * After the Y-flip in textpaths.ts:
+ *   - Outer letter contours are CCW in Y-up → signedArea > 0
+ *   - Inner counter-shapes (holes in 'O', 'A', etc.) are CW → signedArea < 0
  */
 
 import type { KeyringConfig, KeyringSizeOption } from "./keyring";
@@ -18,12 +24,14 @@ import { computeTextShape, holePolygon, findHoleCenter } from "./textshape";
 const BASE_HEIGHT_MM  = 2.4;   // keyring body height
 const TEXT_HEIGHT_MM  = 0.6;   // raised text above body
 const TOTAL_HEIGHT_MM = BASE_HEIGHT_MM + TEXT_HEIGHT_MM;
-const HOLE_RADIUS_MM  = 4;     // ring attachment hole
+const HOLE_RADIUS_MM  = 3.0;   // ring attachment hole radius
+const TAB_RADIUS_MM   = HOLE_RADIUS_MM + 2.0; // circular tab that merges with text bubble
+const TAB_CLEARANCE_MM = 1.5;  // gap between top of text and bottom of tab circle
 
 // ─── STL types ────────────────────────────────────────────────────────────────
 
 type Vec3 = [number, number, number];
-type Tri  = [Vec3, Vec3, Vec3]; // winding order: counter-clockwise = outward normal
+type Tri  = [Vec3, Vec3, Vec3];
 
 // ─── Binary STL encoder ──────────────────────────────────────────────────────
 
@@ -33,7 +41,6 @@ function encodeStl(triangles: Tri[]): Buffer {
   buf.writeUInt32LE(triangles.length, 80);
   let off = 84;
   for (const [a, b, c] of triangles) {
-    // Compute face normal
     const ux = b[0]-a[0], uy = b[1]-a[1], uz = b[2]-a[2];
     const vx = c[0]-a[0], vy = c[1]-a[1], vz = c[2]-a[2];
     const nx = uy*vz - uz*vy;
@@ -51,39 +58,59 @@ function encodeStl(triangles: Tri[]): Buffer {
   return buf;
 }
 
-// ─── Polygon helpers ──────────────────────────────────────────────────────────
+// ─── Polygon math ─────────────────────────────────────────────────────────────
 
 type P2 = { x: number; y: number };
 
-/** Ensure polygon is counter-clockwise (positive area = CCW in Y-up coords). */
-function ensureCCW(poly: P2[]): P2[] {
-  let area = 0;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    area += (poly[j].x + poly[i].x) * (poly[j].y - poly[i].y);
+/**
+ * Standard shoelace signed area.
+ * Positive → CCW in Y-up (math convention).
+ * Negative → CW in Y-up.
+ */
+function signedArea(poly: P2[]): number {
+  let a = 0;
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    a += poly[i].x * poly[j].y - poly[j].x * poly[i].y;
   }
-  // area > 0 → CW in screen coords → CCW in Y-up → correct for bottom face outward normals
-  // For top face we reverse
-  return area > 0 ? poly : [...poly].reverse();
+  return a / 2;
 }
 
-/** Ensure polygon is clockwise. */
+/** Make polygon CCW in Y-up (positive shoelace area). */
+function ensureCCW(poly: P2[]): P2[] {
+  return signedArea(poly) > 0 ? poly : [...poly].reverse();
+}
+
+/** Make polygon CW in Y-up (negative shoelace area). */
 function ensureCW(poly: P2[]): P2[] {
-  const ccw = ensureCCW(poly);
-  return [...ccw].reverse();
+  return signedArea(poly) < 0 ? poly : [...poly].reverse();
+}
+
+/**
+ * Ray-cast point-in-polygon test.
+ * Returns true if point p is inside polygon poly.
+ */
+function pointInPolygon(p: P2, poly: P2[]): boolean {
+  let inside = false;
+  const n = poly.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y;
+    const xj = poly[j].x, yj = poly[j].y;
+    if ((yi > p.y) !== (yj > p.y) &&
+        p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 // ─── 3D geometry builders ────────────────────────────────────────────────────
 
-/**
- * Triangulate a flat polygon (with optional holes) using earcut.
- * Returns vertex array + triangle index array.
- */
-function triangulate2D(
-  outer: P2[],
-  holes: P2[][] = []
-): { verts: P2[]; indices: number[] } {
+/** Triangulate a 2D polygon with holes using earcut. */
+function triangulate2D(outer: P2[], holes: P2[][] = []): { verts: P2[]; indices: number[] } {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { default: earcut } = require("earcut");
+  const earcut = require("earcut").default ?? require("earcut");
 
   const allVerts: P2[] = [...outer];
   const holeStarts: number[] = [];
@@ -97,52 +124,55 @@ function triangulate2D(
 }
 
 /**
- * Create bottom face triangles (z = zVal, normals pointing down).
- * Polygon must be CW when viewed from below (= CCW top-down).
+ * Bottom face (z = zVal, normals pointing −Z).
+ * Earcut with CCW outer / CW holes, then reverse winding for downward normal.
  */
 function bottomFace(outer: P2[], holes: P2[][], zVal: number): Tri[] {
   const { verts, indices } = triangulate2D(ensureCCW(outer), holes.map(ensureCW));
   const tris: Tri[] = [];
   for (let i = 0; i < indices.length; i += 3) {
-    const a = verts[indices[i]];
-    const b = verts[indices[i+1]];
-    const c = verts[indices[i+2]];
-    // Reverse winding for downward normal
+    const a = verts[indices[i]], b = verts[indices[i+1]], c = verts[indices[i+2]];
+    // Reverse winding → normal points down (−Z)
     tris.push([[c.x,c.y,zVal],[b.x,b.y,zVal],[a.x,a.y,zVal]]);
   }
   return tris;
 }
 
 /**
- * Create top face triangles (z = zVal, normals pointing up).
+ * Top face (z = zVal, normals pointing +Z).
+ * Earcut with CCW outer / CW holes, keep winding for upward normal.
  */
 function topFace(outer: P2[], holes: P2[][], zVal: number): Tri[] {
   const { verts, indices } = triangulate2D(ensureCCW(outer), holes.map(ensureCW));
   const tris: Tri[] = [];
   for (let i = 0; i < indices.length; i += 3) {
-    const a = verts[indices[i]];
-    const b = verts[indices[i+1]];
-    const c = verts[indices[i+2]];
+    const a = verts[indices[i]], b = verts[indices[i+1]], c = verts[indices[i+2]];
     tris.push([[a.x,a.y,zVal],[b.x,b.y,zVal],[c.x,c.y,zVal]]);
   }
   return tris;
 }
 
 /**
- * Create side wall triangles for a polygon extruded from zBottom to zTop.
- * outward = true → outward-facing normals (for outer perimeter).
- * outward = false → inward-facing normals (for hole perimeter).
+ * Side walls for a polygon perimeter extruded from zBottom to zTop.
+ *
+ * Call with a CCW polygon for outward-facing normals (outer boundary of solid).
+ * Call with a CCW polygon + outward=false to get inward-facing normals (hole cavity wall).
+ *
+ * We always accept a CCW polygon and flip winding when outward=false.
  */
-function sideWalls(poly: P2[], zBottom: number, zTop: number, outward = true): Tri[] {
+function sideWalls(poly: P2[], zBottom: number, zTop: number, outward: boolean): Tri[] {
+  const ccw = ensureCCW(poly);
   const tris: Tri[] = [];
-  const n = poly.length;
+  const n = ccw.length;
   for (let i = 0; i < n; i++) {
-    const a = poly[i];
-    const b = poly[(i + 1) % n];
+    const a = ccw[i];
+    const b = ccw[(i + 1) % n];
     if (outward) {
+      // CCW polygon, outward: a_bot → b_bot → b_top and a_bot → b_top → a_top
       tris.push([[a.x,a.y,zBottom],[b.x,b.y,zBottom],[b.x,b.y,zTop]]);
       tris.push([[a.x,a.y,zBottom],[b.x,b.y,zTop],  [a.x,a.y,zTop]]);
     } else {
+      // Flip winding for inward normals (hole cavity)
       tris.push([[b.x,b.y,zBottom],[a.x,a.y,zBottom],[a.x,a.y,zTop]]);
       tris.push([[b.x,b.y,zBottom],[a.x,a.y,zTop],  [b.x,b.y,zTop]]);
     }
@@ -151,72 +181,141 @@ function sideWalls(poly: P2[], zBottom: number, zTop: number, outward = true): T
 }
 
 /**
- * Extrude a polygon (with holes) into a solid 3D prism.
- * Combines bottom face + top face + outer side walls + hole side walls.
+ * Extrude a closed polygon (with optional holes) into a watertight solid prism.
+ * outer and holes must be in the Y-up coordinate system.
+ * Produces correct outward normals on all faces.
  */
-function extrudeSolid(
-  outer: P2[],
-  holes: P2[][],
-  zBottom: number,
-  zTop: number
-): Tri[] {
+function extrudeSolid(outer: P2[], holes: P2[][], zBottom: number, zTop: number): Tri[] {
   return [
     ...bottomFace(outer, holes, zBottom),
     ...topFace(outer, holes, zTop),
-    ...sideWalls(ensureCCW(outer), zBottom, zTop, true),
-    ...holes.flatMap((h) => sideWalls(ensureCCW(h), zBottom, zTop, false)),
+    ...sideWalls(outer, zBottom, zTop, true),
+    // Hole walls: CCW polygon with inward normals
+    ...holes.flatMap(h => sideWalls(h, zBottom, zTop, false)),
   ];
+}
+
+// ─── Text contour grouping ───────────────────────────────────────────────────
+
+type ContourGroup = { outer: P2[]; holes: P2[][] };
+
+/**
+ * Given a flat list of font contours (outer letters + their counter-holes),
+ * group them into { outer, holes[] } pairs ready for extrusion.
+ *
+ * After Y-flip in textpaths.ts:
+ *   outer contours  → CCW → signedArea > 0
+ *   counter-shapes  → CW  → signedArea < 0
+ */
+function groupTextContours(contours: P2[][]): ContourGroup[] {
+  const outers = contours.filter(c => c.length >= 3 && signedArea(c) > 0);
+  const inners = contours.filter(c => c.length >= 3 && signedArea(c) < 0);
+
+  const groups: ContourGroup[] = outers.map(o => ({ outer: o, holes: [] }));
+
+  // Assign each inner contour to the smallest outer that contains it
+  for (const inner of inners) {
+    const testPt = inner[0];
+    // Find all outers containing this inner, then pick smallest area (closest parent)
+    let bestIdx = -1;
+    let bestArea = Infinity;
+    for (let i = 0; i < outers.length; i++) {
+      if (pointInPolygon(testPt, outers[i])) {
+        const a = Math.abs(signedArea(outers[i]));
+        if (a < bestArea) { bestArea = a; bestIdx = i; }
+      }
+    }
+    if (bestIdx >= 0) groups[bestIdx].holes.push(inner);
+  }
+
+  return groups;
+}
+
+// ─── Circular tab for ring attachment ────────────────────────────────────────
+
+/**
+ * Create a circle polygon in Y-up coords (CCW = positive area).
+ * Used as both the tab shape (for merging into the bubble) and the hole.
+ */
+function circlePolygon(cx: number, cy: number, r: number, steps = 48): P2[] {
+  return Array.from({ length: steps }, (_, i) => {
+    const t = (i / steps) * 2 * Math.PI;
+    return { x: cx + r * Math.cos(t), y: cy + r * Math.sin(t) };
+  });
 }
 
 // ─── Main STL generator ───────────────────────────────────────────────────────
 
-export type KeyringStlResult = {
-  baseStl: Buffer;
-  textStl: Buffer;
-};
+export type KeyringStlResult = { baseStl: Buffer; textStl: Buffer };
 
 export async function generateKeyringStl(
   config: KeyringConfig,
   size: KeyringSizeOption
 ): Promise<KeyringStlResult> {
 
-  // 1. Extract text contours from font
-  const fontSize = config.fontSize > 0 ? config.fontSize : Math.min(size.widthMm, size.heightMm) * 0.4;
-  const textContours = extractTextContours(config.text, config.font, fontSize);
+  // 1. Extract raw text contours (Y-flipped, mm units, centered in X)
+  const fontSize = config.fontSize > 0
+    ? config.fontSize
+    : Math.min(size.widthMm, size.heightMm) * 0.45;
 
-  // 2. Compute keyring outline shape
+  const rawContours = extractTextContours(config.text, config.font, fontSize);
+
+  // 2. Build keyring outline shape and determine hole position
   let shapePoly: P2[];
+  let holeCX: number;
+  let holeCY: number;
+
   if (config.shapeType === "auto") {
+    // Compute a circular "tab" above the text.
+    // The tab is merged into the bubble shape via clipper union so there is
+    // always a solid nub for the ring hole — regardless of text length or shape.
+    const textPoints = rawContours.flat();
+    const textTopY    = textPoints.length > 0 ? Math.max(...textPoints.map(p => p.y)) : 0;
+    const textCenterX = 0; // text is always horizontally centered in X
+
+    // Tab center sits TAB_RADIUS + clearance above the tallest letter
+    const tabCY    = textTopY + TAB_RADIUS_MM + TAB_CLEARANCE_MM;
+    const tabCircle = circlePolygon(textCenterX, tabCY, TAB_RADIUS_MM);
+
+    // Only pass outer letter contours to clipper — counter-shapes (holes in 'O', 'A' etc.)
+    // must be excluded so the offset doesn't create unwanted dents in the bubble.
+    const outerContours = rawContours.filter(c => c.length >= 3 && signedArea(c) > 0);
     const marginMm = Math.min(size.widthMm, size.heightMm) * 0.15;
+
     shapePoly = computeTextShape(
-      textContours,
+      [...outerContours, tabCircle],
       marginMm,
       size.widthMm,
       size.heightMm
     );
+
+    holeCX = textCenterX;
+    holeCY = tabCY;
   } else {
+    // Heart / oval: predefined template shapes.
     shapePoly = getShapePolygon(config.shapeType, size.widthMm, size.heightMm);
+    // Place hole at the top-center of the template shape.
+    const hc = findHoleCenter(shapePoly, HOLE_RADIUS_MM);
+    holeCX = hc.cx;
+    holeCY = hc.cy;
   }
 
-  // 3. Compute hole position (top center of the shape)
-  const { cx: holeCx, cy: holeCy } = findHoleCenter(shapePoly, HOLE_RADIUS_MM);
-  const hole = holePolygon(holeCx, holeCy, HOLE_RADIUS_MM);
+  // 3. Ring attachment hole polygon (subtracts from base)
+  const holePoly = circlePolygon(holeCX, holeCY, HOLE_RADIUS_MM);
 
-  // 4. Generate base STL (keyring body with ring hole)
-  const baseTris = extrudeSolid(shapePoly, [hole], 0, BASE_HEIGHT_MM);
-  const baseStl = encodeStl(baseTris);
+  // 4. Generate base.stl: solid prism from 0 → BASE_HEIGHT_MM with hole cutout
+  const baseTris = extrudeSolid(shapePoly, [holePoly], 0, BASE_HEIGHT_MM);
+  const baseStl  = encodeStl(baseTris);
 
-  // 5. Generate text STL (raised letters on top of base)
-  // Filter to contours that are inside the keyring shape (sanity check)
+  // 5. Generate text.stl: raised letters from BASE_HEIGHT_MM → TOTAL_HEIGHT_MM.
+  //    Group contours into outer-with-holes to correctly handle 'O', 'A', 'P' etc.
+  const contourGroups = groupTextContours(rawContours);
   const textTris: Tri[] = [];
-  for (const contour of textContours) {
-    if (contour.length < 3) continue;
-    // Ensure the contour represents a filled region (not a counter-shape like hole in 'O')
-    // We include all contours — earcut handles outer/inner automatically via winding
+  for (const { outer, holes } of contourGroups) {
     try {
-      textTris.push(...extrudeSolid(contour, [], BASE_HEIGHT_MM, TOTAL_HEIGHT_MM));
+      textTris.push(...extrudeSolid(outer, holes, BASE_HEIGHT_MM, TOTAL_HEIGHT_MM));
     } catch {
-      // Skip malformed contours silently
+      // skip malformed contour groups
     }
   }
   const textStl = encodeStl(textTris);
