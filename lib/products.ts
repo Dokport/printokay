@@ -1,3 +1,8 @@
+export type ColorSlot = {
+  id: string;
+  label: string; // e.g. "Krop", "Øjne", "Base"
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -6,7 +11,12 @@ export type Product = {
   image: string;
   emoji: string;
   category: string; // dynamic — defined in settings.json
+  material: string; // e.g. "PLA", "PETG", "TPU" — empty string means not specified
+  modelUrl: string; // link to 3D model file (e.g. Printables, Thingiverse) — admin only
+  colorSlots: ColorSlot[]; // named color areas — empty means no color customization
 };
+
+export const MATERIALS = ["PLA", "PETG", "TPU", "ABS", "ASA", "Resin"];
 
 export function formatPrice(priceInOere: number): string {
   return `${(priceInOere / 100).toFixed(0)} kr`;

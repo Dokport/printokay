@@ -1,8 +1,39 @@
 export type Category = { id: string; label: string; emoji: string };
 
+export type FilamentSpool = {
+  id: string;
+  name: string;     // "Galaxy Black"
+  material: string; // "PLA"
+  colorHex: string; // "#1a1a2e"
+  inStock: boolean;
+};
+
+export type KeyringSizeOption = {
+  id: string;        // "small" | "medium" | "large"
+  label: string;     // "Lille", "Mellem", "Stor"
+  widthMm: number;
+  heightMm: number;
+  basePrice: number; // i øre
+};
+
+export type KeyringSettings = {
+  enabled: boolean;
+  sizes: KeyringSizeOption[];
+  twoColorSurcharge: number; // i øre
+};
+
+export type ShippingOption = {
+  id: string;
+  name: string;
+  price: number; // i øre
+  minDays: number;
+  maxDays: number;
+};
+
 export type SiteSettings = {
   siteName: string;
   logoEmoji: string;
+  logoImage: string;
   tagline: string;
   primaryColor: string;
   accentColor: string;
@@ -15,11 +46,15 @@ export type SiteSettings = {
   aboutEmail: string;
   deliveryText: string;
   categories: Category[];
+  shippingOptions: ShippingOption[];
+  filaments: FilamentSpool[];
+  keyring: KeyringSettings;
 };
 
 export const DEFAULT_SETTINGS: SiteSettings = {
   siteName: "Print Okay",
   logoEmoji: "🖨️",
+  logoImage: "",
   tagline: "Håndlavede 3D printede figurer, fidgets og gadgets — lavet med kærlighed og en masse filament!",
   primaryColor: "#7c3aed",
   accentColor: "#ec4899",
@@ -36,6 +71,20 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     { id: "fidget", label: "Fidgets", emoji: "🎲" },
     { id: "gadget", label: "Gadgets", emoji: "🔧" },
   ],
+  shippingOptions: [
+    { id: "postnord", name: "PostNord Pakke", price: 4900, minDays: 3, maxDays: 7 },
+    { id: "afhentning", name: "Afhentning (gratis)", price: 0, minDays: 1, maxDays: 3 },
+  ],
+  filaments: [],
+  keyring: {
+    enabled: true,
+    sizes: [
+      { id: "small",  label: "Lille",  widthMm: 45, heightMm: 20, basePrice: 5900 },
+      { id: "medium", label: "Mellem", widthMm: 60, heightMm: 28, basePrice: 7900 },
+      { id: "large",  label: "Stor",   widthMm: 80, heightMm: 35, basePrice: 9900 },
+    ],
+    twoColorSurcharge: 2000,
+  },
 };
 
 // Predefined color themes

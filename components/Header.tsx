@@ -3,22 +3,29 @@
 import Link from "next/link";
 import { useCart } from "@/lib/cartContext";
 
-type Props = { siteName: string; logoEmoji: string; primaryColor: string; accentColor: string };
+type Props = { siteName: string; logoEmoji: string; logoImage?: string; primaryColor: string; accentColor: string };
 
-export default function Header({ siteName, logoEmoji, primaryColor }: Props) {
+export default function Header({ siteName, logoEmoji, logoImage, primaryColor }: Props) {
   const { totalItems } = useCart();
 
   return (
     <header className="bg-white shadow-sm sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <span className="text-2xl">{logoEmoji}</span>
+          {logoImage ? (
+            <img src={logoImage} alt={siteName} className="h-9 w-9 object-cover rounded-lg" />
+          ) : (
+            <span className="text-2xl">{logoEmoji}</span>
+          )}
           <span className="text-xl font-bold" style={{ color: primaryColor }}>{siteName}</span>
         </Link>
 
         <nav className="flex items-center gap-6">
           <Link href="/" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
             Shop
+          </Link>
+          <Link href="/noglering" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
+            🔑 Nøglering
           </Link>
           <Link href="/om" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
             Om mig

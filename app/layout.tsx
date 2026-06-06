@@ -45,7 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className={`${geist.className} min-h-screen`} style={{ backgroundColor: s.bgColor }}>
         <CartProvider>
-          <Header siteName={s.siteName} logoEmoji={s.logoEmoji} primaryColor={s.primaryColor} accentColor={s.accentColor} />
+          <Header siteName={s.siteName} logoEmoji={s.logoEmoji} logoImage={s.logoImage} primaryColor={s.primaryColor} accentColor={s.accentColor} />
           <main className="max-w-6xl mx-auto px-4 py-8">{children}</main>
           <footer className="text-center py-8 text-sm" style={{ color: s.primaryColor, opacity: 0.6 }}>
             © {new Date().getFullYear()} {s.siteName} · {s.footerText}

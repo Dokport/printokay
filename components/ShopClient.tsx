@@ -51,6 +51,7 @@ export default function ShopClient({ products, settings }: Props) {
               primaryColor={settings.primaryColor}
               bgColor={settings.bgColor}
               categoryLabel={settings.categories.find((c) => c.id === product.category)?.label ?? product.category}
+              filaments={settings.filaments ?? []}
             />
           ))}
         </div>

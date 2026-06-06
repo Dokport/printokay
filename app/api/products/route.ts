@@ -32,6 +32,9 @@ export async function POST(req: NextRequest) {
     image: body.image || "/products/placeholder.jpg",
     emoji: body.emoji || "🖨️",
     category: body.category,
+    material: body.material || "",
+    modelUrl: body.modelUrl || "",
+    colorSlots: body.colorSlots ?? [],
   };
 
   products.push(newProduct);

@@ -47,6 +47,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     image: body.image || products[idx].image,
     emoji: body.emoji || products[idx].emoji,
     category: body.category,
+    material: body.material ?? products[idx].material ?? "",
+    modelUrl: body.modelUrl ?? products[idx].modelUrl ?? "",
+    colorSlots: body.colorSlots ?? products[idx].colorSlots ?? [],
   };
 
   writeProducts(products);

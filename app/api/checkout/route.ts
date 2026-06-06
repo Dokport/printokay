@@ -1,60 +1,109 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { CartItem } from "@/lib/cart";
+import fs from "fs";
+import path from "path";
+import { CartItem, getItemPrice } from "@/lib/cart";
+import { DEFAULT_SETTINGS, SiteSettings } from "@/lib/settings";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
+function readSettings(): SiteSettings {
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "data", "settings.json"), "utf-8")) };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
 export async function POST(req: NextRequest) {
-  const { items }: { items: CartItem[] } = await req.json();
+  const { items, shippingOptionId }: { items: CartItem[]; shippingOptionId?: string } = await req.json();
 
   if (!items || items.length === 0) {
     return NextResponse.json({ error: "Ingen varer" }, { status: 400 });
   }
 
-  const lineItems = items.map((item) => ({
-    price_data: {
-      currency: "dkk",
-      product_data: {
-        name: item.product.name,
-        description: item.product.description,
-        ...(item.note ? { description: `${item.product.description} — Note: ${item.note}` } : {}),
+  const settings = readSettings();
+  const allOptions = settings.shippingOptions ?? DEFAULT_SETTINGS.shippingOptions;
+
+  // Use selected option if provided, otherwise all options
+  const optionsToUse = shippingOptionId
+    ? allOptions.filter((o) => o.id === shippingOptionId)
+    : allOptions;
+
+  const stripeShippingOptions = (optionsToUse.length > 0 ? optionsToUse : allOptions).map((opt) => ({
+    shipping_rate_data: {
+      type: "fixed_amount" as const,
+      fixed_amount: { amount: opt.price, currency: "dkk" },
+      display_name: opt.name,
+      delivery_estimate: {
+        minimum: { unit: "business_day" as const, value: opt.minDays },
+        maximum: { unit: "business_day" as const, value: opt.maxDays },
       },
-      unit_amount: item.product.price,
     },
-    quantity: item.quantity,
   }));
+
+  const lineItems = items.map((item) => {
+    const isKeyring = !!item.keyringData;
+    const name = isKeyring
+      ? `Nøglering: "${item.keyringData!.text}" (${item.keyringData!.sizeLabel})`
+      : item.product.name;
+
+    const descParts: (string | null)[] = [];
+    if (isKeyring) {
+      const kd = item.keyringData!;
+      descParts.push(`Font: ${kd.font.replace(/-/g, " ")}`);
+      descParts.push(`Base: ${kd.baseFilamentName}`);
+      descParts.push(`Tekst: ${kd.textFilamentName}`);
+    } else {
+      descParts.push(item.product.description);
+      if (item.colorChoices?.length) {
+        item.colorChoices.forEach((c) => descParts.push(`${c.slotLabel}: ${c.filamentName}`));
+      }
+      if (item.note) descParts.push(`Note: ${item.note}`);
+    }
+
+    return {
+      price_data: {
+        currency: "dkk",
+        product_data: {
+          name,
+          description: descParts.filter(Boolean).join(" — "),
+        },
+        unit_amount: getItemPrice(item),
+      },
+      quantity: item.quantity,
+    };
+  });
+
+  // Extract keyring data for metadata (first keyring item, if any)
+  const keyringItem = items.find((i) => i.keyringData);
+  const keyringMeta = keyringItem?.keyringData;
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
     line_items: lineItems,
     mode: "payment",
     shipping_address_collection: { allowed_countries: ["DK"] },
-    shipping_options: [
-      {
-        shipping_rate_data: {
-          type: "fixed_amount",
-          fixed_amount: { amount: 4900, currency: "dkk" },
-          display_name: "PostNord Pakke",
-          delivery_estimate: {
-            minimum: { unit: "business_day", value: 3 },
-            maximum: { unit: "business_day", value: 7 },
-          },
-        },
-      },
-      {
-        shipping_rate_data: {
-          type: "fixed_amount",
-          fixed_amount: { amount: 0, currency: "dkk" },
-          display_name: "Afhentning (aftales)",
-          delivery_estimate: {
-            minimum: { unit: "business_day", value: 1 },
-            maximum: { unit: "business_day", value: 3 },
-          },
-        },
-      },
-    ],
+    shipping_options: stripeShippingOptions,
     success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/succes?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/kurv`,
+    ...(keyringMeta && {
+      metadata: {
+        hasKeyring: "true",
+        keyringText: keyringMeta.text,
+        keyringFont: keyringMeta.font,
+        keyringShape: keyringMeta.shapeType,
+        keyringSizeId: keyringMeta.sizeId,
+        keyringBaseFilamentId: keyringMeta.baseFilamentId,
+        keyringTextFilamentId: keyringMeta.textFilamentId,
+        keyringBaseFilamentName: keyringMeta.baseFilamentName,
+        keyringTextFilamentName: keyringMeta.textFilamentName,
+        keyringBaseColorHex: keyringMeta.baseColorHex,
+        keyringTextColorHex: keyringMeta.textColorHex,
+        keyringFontSize: String(keyringMeta.fontSize),
+        keyringPrice: String(keyringMeta.price),
+      },
+    }),
   });
 
   return NextResponse.json({ url: session.url });
