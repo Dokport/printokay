@@ -1,8 +1,10 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import { CartItem, ColorChoice, KeyringCartData, makeCartKey } from "./cart";
 import { Product } from "./products";
+
+const STORAGE_KEY = "printokay-cart-v1";
 
 type AddItemOptions = {
   note?: string;
@@ -23,6 +25,36 @@ const CartContext = createContext<CartContextType | null>(null);
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
+  // Tracks whether we've finished loading the persisted cart, so the very
+  // first render (empty []) doesn't immediately overwrite a saved cart.
+  const hydrated = useRef(false);
+
+  // Load the persisted cart once, on mount (client-only — localStorage is not
+  // available during SSR, so we read it inside an effect to avoid a hydration
+  // mismatch).
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as CartItem[];
+        if (Array.isArray(parsed)) setItems(parsed);
+      }
+    } catch {
+      // Corrupt/unavailable storage — start with an empty cart.
+    }
+    hydrated.current = true;
+  }, []);
+
+  // Persist the cart whenever it changes (but not before the initial load,
+  // otherwise the empty starting state would wipe the saved cart).
+  useEffect(() => {
+    if (!hydrated.current) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    } catch {
+      // Storage full/unavailable — non-fatal, cart still works in-memory.
+    }
+  }, [items]);
 
   function addItem(product: Product, options?: AddItemOptions) {
     const choices = options?.colorChoices ?? [];
