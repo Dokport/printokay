@@ -311,7 +311,7 @@ export default function KeyringConfigurator() {
     filaments: DEFAULT_SETTINGS.filaments,
   });
 
-  const [text, setText] = useState("");
+  const [text, setText] = useState("Dit navn");
   const [font, setFont] = useState(KEYRING_FONTS[0].id);
   const [shapeType, setShapeType] = useState<"auto" | "heart" | "oval">("auto");
   const [holePosition, setHolePosition] = useState<"top" | "side">("top");
@@ -332,11 +332,18 @@ export default function KeyringConfigurator() {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((data) => {
+        const keyring = data.keyring ?? DEFAULT_KEYRING_SETTINGS;
+        const filaments: FilamentSpool[] = data.filaments ?? [];
+        const inStock = filaments.filter((f: FilamentSpool) => f.inStock);
         setSettings({
           primaryColor: data.primaryColor ?? DEFAULT_SETTINGS.primaryColor,
-          keyring: data.keyring ?? DEFAULT_KEYRING_SETTINGS,
-          filaments: data.filaments ?? [],
+          keyring,
+          filaments,
         });
+        // Pick sensible defaults once settings arrive
+        setSizeId((prev) => prev ?? keyring.sizes?.[1]?.id ?? keyring.sizes?.[0]?.id ?? null);
+        setBaseFilamentId((prev) => prev || inStock[0]?.id || "");
+        setTextFilamentId((prev) => prev || inStock[1]?.id || inStock[0]?.id || "");
       })
       .catch(() => {});
   }, []);
@@ -406,8 +413,38 @@ export default function KeyringConfigurator() {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      {/* ── Left: Configuration ── */}
+    <div className="flex flex-col gap-6">
+      {/* ── Sticky preview at top ── */}
+      <div className="sticky top-4 z-20 bg-white/95 backdrop-blur-sm rounded-2xl shadow-md p-4 border border-gray-100">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Forhåndsvisning</p>
+        {webglOk ? (
+          <KeyringPreview3D
+            text={text}
+            font={font}
+            shapeType={shapeType}
+            holePosition={holePosition}
+            size={selectedSize}
+            fontSize={fontSize ?? 0}
+            baseColor={baseFil?.colorHex ?? "#7c3aed"}
+            textColor={textFil?.colorHex ?? "#ffffff"}
+          />
+        ) : (
+          <KeyringPreview
+            text={text}
+            font={font}
+            shapeType={shapeType}
+            holePosition={holePosition}
+            size={selectedSize}
+            baseColor={baseFil?.colorHex ?? "#7c3aed"}
+            textColor={textFil?.colorHex ?? "#ffffff"}
+          />
+        )}
+        {webglOk && (
+          <p className="text-xs text-gray-400 text-center mt-2">Træk for at rotere · scroll for at zoome</p>
+        )}
+      </div>
+
+      {/* ── Configuration ── */}
       <div className="flex flex-col gap-5">
 
         {/* Text input */}
@@ -568,40 +605,10 @@ export default function KeyringConfigurator() {
         )}
       </div>
 
-      {/* ── Right: Preview + Price ── */}
+      {/* ── Validation + Price + Add to cart ── */}
       <div className="flex flex-col gap-4">
-        <label className="text-sm font-semibold text-gray-700">Forhåndsvisning</label>
-
-        {webglOk ? (
-          <KeyringPreview3D
-            text={text}
-            font={font}
-            shapeType={shapeType}
-            holePosition={holePosition}
-            size={selectedSize}
-            fontSize={fontSize ?? 0}
-            baseColor={baseFil?.colorHex ?? "#7c3aed"}
-            textColor={textFil?.colorHex ?? "#ffffff"}
-          />
-        ) : (
-          <KeyringPreview
-            text={text}
-            font={font}
-            shapeType={shapeType}
-            holePosition={holePosition}
-            size={selectedSize}
-            baseColor={baseFil?.colorHex ?? "#7c3aed"}
-            textColor={textFil?.colorHex ?? "#ffffff"}
-          />
-        )}
-        {webglOk && (
-          <p className="text-xs text-gray-400 text-center -mt-1">
-            Træk for at rotere · scroll for at zoome
-          </p>
-        )}
-
         {/* Validation messages */}
-        {!validation.ok && text && (
+        {!validation.ok && text && text !== "Dit navn" && (
           <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700">
             {validation.error}
           </div>
