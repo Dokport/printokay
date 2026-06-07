@@ -38,12 +38,20 @@ export default function AdminPage() {
   // Orders state
   const [orders, setOrders] = useState<KeyringOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  type CustomerInfo = { name: string; email: string; phone: string | null; address: string };
+  const [customerInfo, setCustomerInfo] = useState<Record<string, CustomerInfo | "loading" | "error">>({});
 
-  // Test G-code state
-  const EMPTY_TEST = { text: "Emma", font: "Roboto-Bold", shapeType: "auto", holePosition: "top", sizeId: "medium", baseColorHex: "#7c3aed", textColorHex: "#ffffff", baseFilamentName: "Lilla PLA", textFilamentName: "Hvid PLA" };
-  const [testGcode, setTestGcode] = useState(EMPTY_TEST);
-  const [testGenerating, setTestGenerating] = useState(false);
-  const [testError, setTestError] = useState("");
+  async function fetchCustomer(orderId: string) {
+    setCustomerInfo((prev) => ({ ...prev, [orderId]: "loading" }));
+    try {
+      const res = await authedFetch(`/api/orders/${orderId}/customer`);
+      const data = await res.json();
+      if (res.ok) setCustomerInfo((prev) => ({ ...prev, [orderId]: data }));
+      else setCustomerInfo((prev) => ({ ...prev, [orderId]: "error" }));
+    } catch {
+      setCustomerInfo((prev) => ({ ...prev, [orderId]: "error" }));
+    }
+  }
 
   // Products state
   const [products, setProducts] = useState<Product[]>([]);
@@ -549,142 +557,6 @@ export default function AdminPage() {
       {tab === "bestillinger" && (
         <div className="flex flex-col gap-6">
 
-          {/* ── Test G-code generator ── */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border-2 border-dashed border-purple-200">
-            <h2 className="font-semibold text-gray-800 mb-1">🧪 Test G-code generator</h2>
-            <p className="text-sm text-gray-500 mb-4">Generer G-code direkte uden at gå igennem checkout — brug dette til at tjekke filen inden shoppen er live.</p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-              {/* Text */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-600">Tekst</label>
-                <input value={testGcode.text} onChange={(e) => setTestGcode((t) => ({ ...t, text: e.target.value }))}
-                  placeholder="fx Emma" maxLength={20}
-                  className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" />
-              </div>
-
-              {/* Size */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-600">Størrelse</label>
-                <select value={testGcode.sizeId} onChange={(e) => setTestGcode((t) => ({ ...t, sizeId: e.target.value }))}
-                  className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
-                  {(settings.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).map((s) => (
-                    <option key={s.id} value={s.id}>{s.label} ({s.widthMm}×{s.heightMm}mm)</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Font */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-600">Skrifttype</label>
-                <select value={testGcode.font} onChange={(e) => setTestGcode((t) => ({ ...t, font: e.target.value }))}
-                  className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
-                  {KEYRING_FONTS.map((f) => (
-                    <option key={f.id} value={f.id}>{f.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Shape */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-600">Form</label>
-                <select value={testGcode.shapeType} onChange={(e) => setTestGcode((t) => ({ ...t, shapeType: e.target.value }))}
-                  className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
-                  {KEYRING_SHAPES.map((s) => (
-                    <option key={s.id} value={s.id}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Hole position */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-600">Hul-placering</label>
-                <select value={testGcode.holePosition} onChange={(e) => setTestGcode((t) => ({ ...t, holePosition: e.target.value }))}
-                  className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
-                  {KEYRING_HOLE_POSITIONS.map((h) => (
-                    <option key={h.id} value={h.id}>{h.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Base color */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-600">Base-farve</label>
-                <div className="flex gap-2 items-center">
-                  <input type="color" value={testGcode.baseColorHex} onChange={(e) => setTestGcode((t) => ({ ...t, baseColorHex: e.target.value }))}
-                    className="w-10 h-10 rounded-lg border border-gray-200 cursor-pointer p-0.5 flex-shrink-0" />
-                  <input value={testGcode.baseFilamentName} onChange={(e) => setTestGcode((t) => ({ ...t, baseFilamentName: e.target.value }))}
-                    placeholder="Filament navn (til G-code kommentar)"
-                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" />
-                </div>
-              </div>
-
-              {/* Text color */}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-gray-600">Tekst-farve</label>
-                <div className="flex gap-2 items-center">
-                  <input type="color" value={testGcode.textColorHex} onChange={(e) => setTestGcode((t) => ({ ...t, textColorHex: e.target.value }))}
-                    className="w-10 h-10 rounded-lg border border-gray-200 cursor-pointer p-0.5 flex-shrink-0" />
-                  <input value={testGcode.textFilamentName} onChange={(e) => setTestGcode((t) => ({ ...t, textFilamentName: e.target.value }))}
-                    placeholder="Filament navn (til G-code kommentar)"
-                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" />
-                </div>
-              </div>
-            </div>
-
-            {testError && (
-              <p className="text-red-500 text-sm mb-3">❌ {testError}</p>
-            )}
-
-            <button
-              type="button"
-              disabled={testGenerating || !testGcode.text.trim()}
-              onClick={async () => {
-                setTestGenerating(true);
-                setTestError("");
-                try {
-                  const size = (settings.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).find((s) => s.id === testGcode.sizeId) ?? DEFAULT_KEYRING_SETTINGS.sizes[1];
-                  const res = await authedFetch("/api/orders/test-stl", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      ...testGcode,
-                      fontSize: 0, // auto-calculated in STL generator
-                    }),
-                  });
-                  if (!res.ok) {
-                    const err = await res.json();
-                    setTestError(err.error ?? "Ukendt fejl");
-                    return;
-                  }
-                  const blob = await res.blob();
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `test_noglering_${testGcode.text}.stl`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                } catch (err) {
-                  setTestError(String(err));
-                } finally {
-                  setTestGenerating(false);
-                }
-              }}
-              className="bg-purple-600 text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-purple-700 transition-colors disabled:opacity-60 flex items-center gap-2"
-            >
-              {testGenerating ? (
-                <><span className="animate-spin">⚙️</span> Genererer STL...</>
-              ) : (
-                <>⬇️ Generer og download STL</>
-              )}
-            </button>
-
-            <div className="mt-4 text-xs text-gray-500 bg-gray-50 rounded-xl p-3 leading-relaxed">
-              <p className="font-semibold text-gray-600 mb-1">🎨 2 farver i BambuStudio</p>
-              <p>Importér STL&apos;en, og tilføj et <span className="font-medium">filamentskift ved Z = 2,4 mm</span>.
-              Alt under 2,4 mm printes i basisfarven, og de hævede bogstaver ovenover i tekstfarven.</p>
-            </div>
-          </div>
 
           <div className="bg-white rounded-2xl p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
@@ -766,6 +638,31 @@ export default function AdminPage() {
                                   <span className="text-xs text-gray-500">{order.textFilamentName} (tekst)</span>
                                 </div>
                               </>
+                            )}
+                          </div>
+                          {/* Customer info */}
+                          <div className="mt-3">
+                            {!customerInfo[order.id] ? (
+                              <button
+                                type="button"
+                                onClick={() => fetchCustomer(order.id)}
+                                className="text-xs text-purple-500 hover:text-purple-700 underline"
+                              >
+                                Vis kundeinfo & adresse
+                              </button>
+                            ) : customerInfo[order.id] === "loading" ? (
+                              <span className="text-xs text-gray-400">Henter...</span>
+                            ) : customerInfo[order.id] === "error" ? (
+                              <span className="text-xs text-red-400">Kunne ikke hente kundeinfo</span>
+                            ) : (
+                              <div className="text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2 space-y-0.5">
+                                {(() => { const c = customerInfo[order.id] as CustomerInfo; return (<>
+                                  <p><span className="text-gray-400">Navn:</span> {c.name}</p>
+                                  <p><span className="text-gray-400">Email:</span> {c.email}</p>
+                                  {c.phone && <p><span className="text-gray-400">Tlf:</span> {c.phone}</p>}
+                                  <p><span className="text-gray-400">Adresse:</span> {c.address}</p>
+                                </>); })()}
+                              </div>
                             )}
                           </div>
                         </div>
