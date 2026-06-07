@@ -16,9 +16,24 @@ export async function POST(req: NextRequest) {
   const filename = `products/${Date.now()}.${ext}`;
 
   if (process.env.BLOB_READ_WRITE_TOKEN) {
-    const blob = await put(filename, file, { access: "public" });
-    return NextResponse.json({ url: blob.url });
+    try {
+      // Store as private (the store is configured with private access).
+      // Return a proxy URL that the browser can load via /api/img.
+      await put(filename, file, {
+        access: "private",
+        allowOverwrite: true,
+      });
+      const proxyUrl = `/api/img?p=${encodeURIComponent(filename)}`;
+      return NextResponse.json({ url: proxyUrl });
+    } catch (err) {
+      console.error("Blob upload error:", err);
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Upload fejlede" },
+        { status: 500 }
+      );
+    }
   } else {
+    // Local filesystem (development)
     const buffer = Buffer.from(await file.arrayBuffer());
     const savePath = path.join(process.cwd(), "public", filename);
     fs.mkdirSync(path.dirname(savePath), { recursive: true });
