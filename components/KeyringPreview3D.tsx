@@ -143,9 +143,9 @@ export default function KeyringPreview3D({
     };
   }, [geom]);
 
-  const wrap = "w-full rounded-2xl bg-gray-50 border border-gray-100 overflow-hidden";
+  const wrap = "w-full h-[180px] sm:h-[280px] rounded-2xl bg-gray-50 border border-gray-100 overflow-hidden";
   const placeholder = (msg: string) => (
-    <div className={`${wrap} flex items-center justify-center text-sm text-gray-400`} style={{ height: 280 }}>
+    <div className={`${wrap} flex items-center justify-center text-sm text-gray-400`}>
       {msg}
     </div>
   );
@@ -156,7 +156,7 @@ export default function KeyringPreview3D({
   if (!geom) return placeholder("Indlæser 3D-model…");
 
   return (
-    <div className={wrap} style={{ height: 280 }}>
+    <div className={wrap}>
       <Canvas
         camera={{ position: [0, 22, 70], fov: 35, near: 0.1, far: 2000 }}
         dpr={[1, 2]}

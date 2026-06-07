@@ -29,10 +29,7 @@ type Settings = {
 const KeyringPreview3D = dynamic(() => import("@/components/KeyringPreview3D"), {
   ssr: false,
   loading: () => (
-    <div
-      className="w-full rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-sm text-gray-400"
-      style={{ height: 280 }}
-    >
+    <div className="w-full h-[180px] sm:h-[280px] rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-sm text-gray-400">
       Indlæser 3D-preview…
     </div>
   ),
@@ -414,9 +411,11 @@ export default function KeyringConfigurator() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* ── Sticky preview at top ── */}
-      <div className="sticky top-4 z-20 bg-white/95 backdrop-blur-sm rounded-2xl shadow-md p-4 border border-gray-100">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Forhåndsvisning</p>
+      {/* ── Sticky preview at top ──
+          Full-bleed solid background (negative margins cancel the page padding)
+          so settings scrolling underneath never peek around the rounded card. */}
+      <div className="sticky top-0 z-20 -mx-4 px-4 pt-3 pb-3 bg-white shadow-md border-b border-gray-100">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Forhåndsvisning</p>
         {webglOk ? (
           <KeyringPreview3D
             text={text}
