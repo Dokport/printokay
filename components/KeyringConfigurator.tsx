@@ -317,6 +317,10 @@ export default function KeyringConfigurator() {
   const [textFilamentId, setTextFilamentId] = useState("");
   const [added, setAdded] = useState(false);
   const [webglOk, setWebglOk] = useState(true);
+  // When the text field is focused on mobile, the keyboard shrinks the viewport.
+  // A sticky preview would then cover the whole visible area, so we un-stick it
+  // while editing so the field can scroll into view above the keyboard.
+  const [editingText, setEditingText] = useState(false);
 
   useEffect(() => { setWebglOk(detectWebGL()); }, []);
 
@@ -414,7 +418,7 @@ export default function KeyringConfigurator() {
       {/* ── Sticky preview at top ──
           Full-bleed solid background (negative margins cancel the page padding)
           so settings scrolling underneath never peek around the rounded card. */}
-      <div className="sticky top-0 z-20 -mx-4 px-4 pt-3 pb-3 bg-white shadow-md border-b border-gray-100">
+      <div className={`${editingText ? "relative" : "sticky"} top-0 z-20 -mx-4 px-4 pt-3 pb-3 bg-white shadow-md border-b border-gray-100`}>
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Forhåndsvisning</p>
         {webglOk ? (
           <KeyringPreview3D
@@ -455,6 +459,13 @@ export default function KeyringConfigurator() {
             type="text"
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onFocus={(e) => {
+              setEditingText(true);
+              if (text === "Dit navn") setText("");
+              // Scroll the field into view above the keyboard once layout settles.
+              setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300);
+            }}
+            onBlur={() => { setEditingText(false); if (!text.trim()) setText("Dit navn"); }}
             placeholder="Skriv din tekst her..."
             maxLength={20}
             className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 text-gray-800 text-base"
