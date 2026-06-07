@@ -17,13 +17,13 @@ export async function GET(
 
   const { id } = await params;
 
-  const orders = readOrders();
+  const orders = await readOrders();
   const order = orders.find((o) => o.id === id);
   if (!order) {
     return NextResponse.json({ error: "Ordre ikke fundet" }, { status: 404 });
   }
 
-  const stl = readStl(id);
+  const stl = await readStl(id);
   if (!stl) {
     return NextResponse.json(
       { error: "STL-fil ikke fundet for denne ordre" },

@@ -1,31 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { SiteSettings, DEFAULT_SETTINGS } from "@/lib/settings";
+import { readJsonFile, writeJsonFile } from "@/lib/storage";
 import { isAdmin } from "@/lib/isAdmin";
 
-const DATA_PATH = path.join(process.cwd(), "data", "settings.json");
-
-function readSettings(): SiteSettings {
-  try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(DATA_PATH, "utf-8")) };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
-
-function writeSettings(settings: SiteSettings) {
-  fs.writeFileSync(DATA_PATH, JSON.stringify(settings, null, 2));
+async function readSettings(): Promise<SiteSettings> {
+  const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
+  return { ...DEFAULT_SETTINGS, ...stored };
 }
 
 export async function GET() {
-  return NextResponse.json(readSettings());
+  return NextResponse.json(await readSettings());
 }
 
 export async function PUT(req: NextRequest) {
   if (!isAdmin(req)) return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   const body = await req.json();
-  const updated = { ...readSettings(), ...body };
-  writeSettings(updated);
+  const updated = { ...(await readSettings()), ...body };
+  await writeJsonFile("settings.json", updated);
   return NextResponse.json(updated);
 }

@@ -1,6 +1,5 @@
-import fs from "fs";
-import path from "path";
 import type { KeyringConfig, KeyringSizeOption } from "./keyring";
+import { readJsonFile, writeJsonFile, readBinaryFile, writeBinaryFile } from "./storage";
 
 export type KeyringOrder = {
   id: string;
@@ -17,45 +16,45 @@ export type KeyringOrder = {
   stlGenerated: boolean;
 };
 
-const ORDERS_PATH = path.join(process.cwd(), "data", "orders.json");
-const STL_DIR     = path.join(process.cwd(), "data", "stl");
+// ─── Orders JSON ──────────────────────────────────────────────────────────────
 
-export function readOrders(): KeyringOrder[] {
-  try {
-    if (!fs.existsSync(ORDERS_PATH)) return [];
-    const raw = JSON.parse(fs.readFileSync(ORDERS_PATH, "utf-8"));
-    // Migrate old orders that use gcodeGenerated field
-    return raw.map((o: Record<string, unknown>) => {
-      if ("gcodeGenerated" in o && !("stlGenerated" in o)) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { gcodeGenerated, ...rest } = o as Record<string, unknown> & { gcodeGenerated: unknown };
-        return { ...rest, stlGenerated: Boolean(gcodeGenerated) } as unknown as KeyringOrder;
-      }
-      return o as unknown as KeyringOrder;
-    });
-  } catch {
-    return [];
-  }
+export async function readOrders(): Promise<KeyringOrder[]> {
+  const raw = await readJsonFile<KeyringOrder[]>("orders.json", []);
+  // Migrate old orders that used gcodeGenerated
+  return raw.map((o: Record<string, unknown>) => {
+    if ("gcodeGenerated" in o && !("stlGenerated" in o)) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { gcodeGenerated, ...rest } = o as Record<string, unknown> & { gcodeGenerated: unknown };
+      return { ...rest, stlGenerated: Boolean(gcodeGenerated) } as unknown as KeyringOrder;
+    }
+    return o as unknown as KeyringOrder;
+  });
 }
 
-export function writeOrders(orders: KeyringOrder[]): void {
-  fs.writeFileSync(ORDERS_PATH, JSON.stringify(orders, null, 2));
+export async function writeOrders(orders: KeyringOrder[]): Promise<void> {
+  await writeJsonFile("orders.json", orders);
 }
 
-export function saveStl(orderId: string, stl: Buffer): void {
-  if (!fs.existsSync(STL_DIR)) {
-    fs.mkdirSync(STL_DIR, { recursive: true });
-  }
-  fs.writeFileSync(path.join(STL_DIR, `${orderId}.stl`), stl);
+// ─── STL files ────────────────────────────────────────────────────────────────
+
+export async function saveStl(orderId: string, stl: Buffer): Promise<void> {
+  await writeBinaryFile(`stl/${orderId}.stl`, stl);
 }
 
-export function readStl(orderId: string): Buffer | null {
-  const stlPath = path.join(STL_DIR, `${orderId}.stl`);
-  if (!fs.existsSync(stlPath)) return null;
-  return fs.readFileSync(stlPath);
+export async function readStl(orderId: string): Promise<Buffer | null> {
+  return readBinaryFile(`stl/${orderId}.stl`);
 }
 
-export function createOrder(data: Omit<KeyringOrder, "id" | "createdAt" | "status" | "stlGenerated">): KeyringOrder {
+// ─── Order helpers ────────────────────────────────────────────────────────────
+
+export async function createOrder(
+  data: Omit<KeyringOrder, "id" | "createdAt" | "status" | "stlGenerated">
+): Promise<KeyringOrder> {
+  const orders = await readOrders();
+  // Prevent duplicate orders for same Stripe session
+  const existing = orders.find((o) => o.stripeSessionId === data.stripeSessionId);
+  if (existing) return existing;
+
   const order: KeyringOrder = {
     id: `order-${Date.now()}`,
     createdAt: new Date().toISOString(),
@@ -63,30 +62,25 @@ export function createOrder(data: Omit<KeyringOrder, "id" | "createdAt" | "statu
     stlGenerated: false,
     ...data,
   };
-  const orders = readOrders();
-  // Prevent duplicate orders for same Stripe session
-  if (orders.some((o) => o.stripeSessionId === data.stripeSessionId)) {
-    return orders.find((o) => o.stripeSessionId === data.stripeSessionId)!;
-  }
   orders.unshift(order);
-  writeOrders(orders);
+  await writeOrders(orders);
   return order;
 }
 
-export function updateOrderStatus(orderId: string, status: "pending" | "printed"): void {
-  const orders = readOrders();
+export async function updateOrderStatus(orderId: string, status: "pending" | "printed"): Promise<void> {
+  const orders = await readOrders();
   const idx = orders.findIndex((o) => o.id === orderId);
   if (idx !== -1) {
     orders[idx].status = status;
-    writeOrders(orders);
+    await writeOrders(orders);
   }
 }
 
-export function markStlGenerated(orderId: string): void {
-  const orders = readOrders();
+export async function markStlGenerated(orderId: string): Promise<void> {
+  const orders = await readOrders();
   const idx = orders.findIndex((o) => o.id === orderId);
   if (idx !== -1) {
     orders[idx].stlGenerated = true;
-    writeOrders(orders);
+    await writeOrders(orders);
   }
 }

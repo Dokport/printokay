@@ -1,14 +1,11 @@
-import fs from "fs";
-import path from "path";
 import { SiteSettings, DEFAULT_SETTINGS } from "@/lib/settings";
+import { readJsonFile } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
-export default function OmPage() {
-  let s: SiteSettings = DEFAULT_SETTINGS;
-  try {
-    s = { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "data", "settings.json"), "utf-8")) };
-  } catch {}
+export default async function OmPage() {
+  const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
+  const s: SiteSettings = { ...DEFAULT_SETTINGS, ...stored };
 
   return (
     <div className="max-w-2xl mx-auto py-8">
@@ -22,7 +19,7 @@ export default function OmPage() {
         {s.aboutExtra && <p>{s.aboutExtra}</p>}
 
         <div className="rounded-xl p-4 mt-6" style={{ backgroundColor: `color-mix(in srgb, ${s.bgColor} 80%, white)` }}>
-          <h2 className="font-semibold mb-2" style={{ color: s.primaryColor }}>📬 Kontakt</h2>
+          <h2 className="font-semibold mb-2" style={{ color: s.primaryColor }}>Kontakt</h2>
           <p>
             Email:{" "}
             <a href={`mailto:${s.aboutEmail}`} className="underline" style={{ color: s.primaryColor }}>
@@ -33,7 +30,7 @@ export default function OmPage() {
         </div>
 
         <div className="rounded-xl p-4" style={{ backgroundColor: `color-mix(in srgb, ${s.bgColor} 80%, white)` }}>
-          <h2 className="font-semibold mb-2" style={{ color: s.primaryColor }}>🚚 Levering & retur</h2>
+          <h2 className="font-semibold mb-2" style={{ color: s.primaryColor }}>Levering & retur</h2>
           <ul className="text-sm space-y-1">
             {s.deliveryText.split("\n").filter(Boolean).map((line, i) => (
               <li key={i}>• {line}</li>

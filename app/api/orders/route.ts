@@ -5,19 +5,8 @@ import { readOrders, createOrder, updateOrderStatus, saveStl, markStlGenerated }
 import { generateKeyringStl } from "@/lib/stl";
 import { DEFAULT_KEYRING_SETTINGS } from "@/lib/keyring";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
-import fs from "fs";
-import path from "path";
-
-function readSettings() {
-  try {
-    return {
-      ...DEFAULT_SETTINGS,
-      ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "data", "settings.json"), "utf-8")),
-    };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
+import { readJsonFile } from "@/lib/storage";
+import type { SiteSettings } from "@/lib/settings";
 
 // POST — Create order after successful Stripe payment
 export async function POST(req: NextRequest) {
@@ -43,13 +32,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Get settings
-    const settings = readSettings();
+    const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
+    const settings = { ...DEFAULT_SETTINGS, ...stored };
     const keyringSettings = settings.keyring ?? DEFAULT_KEYRING_SETTINGS;
     const size = keyringSettings.sizes.find((s: { id: string }) => s.id === sizeId)
       ?? keyringSettings.sizes[0];
 
     // Create order record
-    const order = createOrder({
+    const order = await createOrder({
       stripeSessionId: sessionId,
       config: keyringConfig,
       size,
@@ -64,8 +54,8 @@ export async function POST(req: NextRequest) {
     if (!order.stlGenerated) {
       try {
         const stl = await generateKeyringStl(keyringConfig, size);
-        saveStl(order.id, stl);
-        markStlGenerated(order.id);
+        await saveStl(order.id, stl);
+        await markStlGenerated(order.id);
       } catch (stlErr) {
         console.error("STL generation failed:", stlErr);
         // Order is still created, STL can be re-generated later
@@ -84,7 +74,7 @@ export async function GET(req: NextRequest) {
   if (!isAdmin(req)) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
-  return NextResponse.json(readOrders());
+  return NextResponse.json(await readOrders());
 }
 
 // PATCH — Update order status (admin only)
@@ -93,6 +83,6 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
   const { orderId, status } = await req.json();
-  updateOrderStatus(orderId, status);
+  await updateOrderStatus(orderId, status);
   return NextResponse.json({ ok: true });
 }

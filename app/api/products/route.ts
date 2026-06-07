@@ -1,28 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { Product } from "@/lib/products";
 import { isAdmin } from "@/lib/isAdmin";
+import { readJsonFile, writeJsonFile } from "@/lib/storage";
 
-const DATA_PATH = path.join(process.cwd(), "data", "products.json");
-
-function readProducts(): Product[] {
-  return JSON.parse(fs.readFileSync(DATA_PATH, "utf-8"));
+async function readProducts(): Promise<Product[]> {
+  return readJsonFile<Product[]>("products.json", []);
 }
 
-function writeProducts(products: Product[]) {
-  fs.writeFileSync(DATA_PATH, JSON.stringify(products, null, 2));
+async function writeProducts(products: Product[]): Promise<void> {
+  await writeJsonFile("products.json", products);
 }
 
 export async function GET() {
-  return NextResponse.json(readProducts());
+  return NextResponse.json(await readProducts());
 }
 
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
 
   const body = await req.json();
-  const products = readProducts();
+  const products = await readProducts();
 
   const newProduct: Product = {
     id: body.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") + "-" + Date.now(),
@@ -38,7 +35,7 @@ export async function POST(req: NextRequest) {
   };
 
   products.push(newProduct);
-  writeProducts(products);
+  await writeProducts(products);
 
   return NextResponse.json(newProduct, { status: 201 });
 }

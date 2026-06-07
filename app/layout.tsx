@@ -4,32 +4,28 @@ import Script from "next/script";
 import "./globals.css";
 import { CartProvider } from "@/lib/cartContext";
 import Header from "@/components/Header";
-import fs from "fs";
-import path from "path";
 import { SiteSettings, DEFAULT_SETTINGS } from "@/lib/settings";
+import { readJsonFile } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
 const geist = Geist({ subsets: ["latin"] });
 
-function loadSettings(): SiteSettings {
-  try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "data", "settings.json"), "utf-8")) };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
+async function loadSettings(): Promise<SiteSettings> {
+  const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
+  return { ...DEFAULT_SETTINGS, ...stored };
 }
 
 export async function generateMetadata(): Promise<Metadata> {
-  const s = loadSettings();
+  const s = await loadSettings();
   return {
     title: `${s.siteName} — 3D printede figurer & gadgets`,
     description: s.tagline,
   };
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const s = loadSettings();
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const s = await loadSettings();
 
   const cssVars = `
     :root {

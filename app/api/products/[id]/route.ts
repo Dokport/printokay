@@ -1,31 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import { Product } from "@/lib/products";
 import { isAdmin } from "@/lib/isAdmin";
+import { readJsonFile, writeJsonFile } from "@/lib/storage";
 
-const DATA_PATH = path.join(process.cwd(), "data", "products.json");
-
-function readProducts(): Product[] {
-  return JSON.parse(fs.readFileSync(DATA_PATH, "utf-8"));
+async function readProducts(): Promise<Product[]> {
+  return readJsonFile<Product[]>("products.json", []);
 }
 
-function writeProducts(products: Product[]) {
-  fs.writeFileSync(DATA_PATH, JSON.stringify(products, null, 2));
+async function writeProducts(products: Product[]): Promise<void> {
+  await writeJsonFile("products.json", products);
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!isAdmin(req)) return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
 
   const { id } = await params;
-  const products = readProducts();
+  const products = await readProducts();
   const updated = products.filter((p) => p.id !== id);
 
   if (updated.length === products.length) {
     return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
   }
 
-  writeProducts(updated);
+  await writeProducts(updated);
   return NextResponse.json({ ok: true });
 }
 
@@ -34,7 +31,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const { id } = await params;
   const body = await req.json();
-  const products = readProducts();
+  const products = await readProducts();
 
   const idx = products.findIndex((p) => p.id === id);
   if (idx === -1) return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
@@ -52,6 +49,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     colorSlots: body.colorSlots ?? products[idx].colorSlots ?? [],
   };
 
-  writeProducts(products);
+  await writeProducts(products);
   return NextResponse.json(products[idx]);
 }

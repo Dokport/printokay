@@ -1,19 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import fs from "fs";
-import path from "path";
 import { CartItem, getItemPrice } from "@/lib/cart";
 import { DEFAULT_SETTINGS, SiteSettings } from "@/lib/settings";
+import { readJsonFile } from "@/lib/storage";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
-function readSettings(): SiteSettings {
-  try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "data", "settings.json"), "utf-8")) };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
 
 export async function POST(req: NextRequest) {
   const { items, shippingOptionId }: { items: CartItem[]; shippingOptionId?: string } = await req.json();
@@ -22,7 +13,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ingen varer" }, { status: 400 });
   }
 
-  const settings = readSettings();
+  const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
+  const settings = { ...DEFAULT_SETTINGS, ...stored };
   const allOptions = settings.shippingOptions ?? DEFAULT_SETTINGS.shippingOptions;
 
   // Use selected option if provided, otherwise all options
