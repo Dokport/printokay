@@ -1,28 +1,34 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useCart } from "@/lib/cartContext";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 export default function SuccesPage() {
-  const { clearCart, items } = useCart();
+  const { clearCart, items, hydrated } = useCart();
   const searchParams = useSearchParams();
-  const [keyringOrdered, setKeyringOrdered] = useState(false);
   const orderPosted = useRef(false);
 
+  // Wait until cart is hydrated from localStorage before processing.
+  // Without this, items is [] on first render and the order never gets posted.
   useEffect(() => {
+    if (!hydrated) return;
+    if (orderPosted.current) return;
+
     const sessionId = searchParams.get("session_id");
+    if (!sessionId) {
+      clearCart();
+      return;
+    }
 
-    // Find keyring items in cart before clearing
-    const keyringItem = items.find((i) => i.keyringData);
+    orderPosted.current = true;
 
-    if (keyringItem && sessionId && !orderPosted.current) {
-      orderPosted.current = true;
-      const kd = keyringItem.keyringData!;
-
-      // Post order to API
-      fetch("/api/orders", {
+    // Post an order record for every keyring item in the cart.
+    const keyringItems = items.filter((i) => i.keyringData);
+    const postPromises = keyringItems.map((item) => {
+      const kd = item.keyringData!;
+      return fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -44,16 +50,13 @@ export default function SuccesPage() {
           textFilamentName: kd.textFilamentName,
           pricePaid: kd.price,
         }),
-      })
-        .then(() => setKeyringOrdered(true))
-        .catch((err) => {
-          console.error("Order post failed:", err);
-          setKeyringOrdered(true); // still show success to customer
-        });
-    }
+      }).catch((err) => console.error("Order post failed:", err));
+    });
 
-    clearCart();
-  }, []);
+    Promise.all(postPromises).finally(() => clearCart());
+  }, [hydrated]);
+
+  const hasKeyrings = items.some((i) => i.keyringData);
 
   return (
     <div className="text-center py-24">
@@ -62,7 +65,7 @@ export default function SuccesPage() {
       <p className="text-gray-600 text-lg mb-2">
         Du får en bekræftelse på din email.
       </p>
-      {keyringOrdered ? (
+      {hasKeyrings ? (
         <p className="text-gray-500 mb-8">
           Din nøglering er i kø og bliver printet hurtigst muligt 🔑💜
         </p>

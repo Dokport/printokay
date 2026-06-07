@@ -14,6 +14,7 @@ type AddItemOptions = {
 
 type CartContextType = {
   items: CartItem[];
+  hydrated: boolean; // true once localStorage has been read — safe to rely on items
   addItem: (product: Product, options?: AddItemOptions) => void;
   removeItem: (cartKey: string) => void;
   updateQuantity: (cartKey: string, quantity: number) => void;
@@ -25,9 +26,8 @@ const CartContext = createContext<CartContextType | null>(null);
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
-  // Tracks whether we've finished loading the persisted cart, so the very
-  // first render (empty []) doesn't immediately overwrite a saved cart.
-  const hydrated = useRef(false);
+  const [hydrated, setHydrated] = useState(false);
+  const savedOnce = useRef(false);
 
   // Load the persisted cart once, on mount (client-only — localStorage is not
   // available during SSR, so we read it inside an effect to avoid a hydration
@@ -42,23 +42,23 @@ export function CartProvider({ children }: { children: ReactNode }) {
     } catch {
       // Corrupt/unavailable storage — start with an empty cart.
     }
-    hydrated.current = true;
+    setHydrated(true);
   }, []);
 
   // Persist the cart whenever it changes (but not before the initial load,
   // otherwise the empty starting state would wipe the saved cart).
   useEffect(() => {
-    if (!hydrated.current) return;
+    if (!hydrated) return;
+    savedOnce.current = true;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
     } catch {
       // Storage full/unavailable — non-fatal, cart still works in-memory.
     }
-  }, [items]);
+  }, [hydrated, items]);
 
   function addItem(product: Product, options?: AddItemOptions) {
     const choices = options?.colorChoices ?? [];
-    // Keyring items get a unique cartKey based on their config text
     const cartKey = options?.keyringData
       ? `keyring-${options.keyringData.text}-${options.keyringData.sizeId}-${options.keyringData.baseFilamentId}-${options.keyringData.textFilamentId}`
       : makeCartKey(product.id, choices);
@@ -100,12 +100,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   function clearCart() {
     setItems([]);
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* non-fatal */ }
   }
 
   const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
 
   return (
-    <CartContext.Provider value={{ items, addItem, removeItem, updateQuantity, clearCart, totalItems }}>
+    <CartContext.Provider value={{ items, hydrated, addItem, removeItem, updateQuantity, clearCart, totalItems }}>
       {children}
     </CartContext.Provider>
   );
