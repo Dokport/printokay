@@ -1,13 +1,18 @@
 /**
  * Isomorphic storage layer.
  *
- * - On Vercel (BLOB_READ_WRITE_TOKEN set): reads/writes JSON files to Vercel Blob.
+ * - On Vercel (BLOB_READ_WRITE_TOKEN set): reads/writes files to Vercel Blob.
  * - Locally (no token): reads/writes from/to the local `data/` directory.
+ *
+ * The Vercel Blob store is configured with **private** access, so we use
+ * `access: "private"` on writes and the authenticated `get()` helper on reads
+ * (the public CDN URL is not fetchable on a private store). `useCache: false`
+ * guarantees we always read the freshly-written content, never a stale CDN copy.
  *
  * All functions are async so callers work the same way in both environments.
  */
 
-import { put, list } from "@vercel/blob";
+import { put, get } from "@vercel/blob";
 import fs from "fs";
 import path from "path";
 
@@ -18,12 +23,10 @@ const useBlob = !!process.env.BLOB_READ_WRITE_TOKEN;
 export async function readJsonFile<T>(filename: string, fallback: T): Promise<T> {
   if (useBlob) {
     try {
-      const { blobs } = await list({ prefix: filename });
-      const blob = blobs.find((b) => b.pathname === filename);
-      if (!blob) return fallback;
-      const res = await fetch(blob.url, { cache: "no-store" });
-      if (!res.ok) return fallback;
-      return (await res.json()) as T;
+      const result = await get(filename, { access: "private", useCache: false });
+      if (!result || !result.stream) return fallback;
+      const text = await new Response(result.stream).text();
+      return JSON.parse(text) as T;
     } catch {
       return fallback;
     }
@@ -40,7 +43,7 @@ export async function readJsonFile<T>(filename: string, fallback: T): Promise<T>
 export async function writeJsonFile<T>(filename: string, data: T): Promise<void> {
   if (useBlob) {
     await put(filename, JSON.stringify(data, null, 2), {
-      access: "public",
+      access: "private",
       contentType: "application/json",
       allowOverwrite: true,
     });
@@ -57,7 +60,7 @@ export async function writeJsonFile<T>(filename: string, data: T): Promise<void>
 export async function writeBinaryFile(filename: string, data: Buffer): Promise<string> {
   if (useBlob) {
     const blob = await put(filename, data, {
-      access: "public",
+      access: "private",
       allowOverwrite: true,
     });
     return blob.url;
@@ -72,12 +75,10 @@ export async function writeBinaryFile(filename: string, data: Buffer): Promise<s
 export async function readBinaryFile(filename: string): Promise<Buffer | null> {
   if (useBlob) {
     try {
-      const { blobs } = await list({ prefix: filename });
-      const blob = blobs.find((b) => b.pathname === filename);
-      if (!blob) return null;
-      const res = await fetch(blob.url);
-      if (!res.ok) return null;
-      return Buffer.from(await res.arrayBuffer());
+      const result = await get(filename, { access: "private", useCache: false });
+      if (!result || !result.stream) return null;
+      const buf = await new Response(result.stream).arrayBuffer();
+      return Buffer.from(buf);
     } catch {
       return null;
     }
