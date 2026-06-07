@@ -122,31 +122,25 @@ export function commandsToContours(commands: PathCommand[]): Point[][] {
 }
 
 /**
- * Load font and extract centered text contours using opentype.js.
- * fontId = filename without .ttf (e.g. "Roboto-Bold")
- * fontSize = desired cap height in mm
- * Returns contours in mm, centered around (0, 0).
+ * Minimal structural type for the parts of an opentype.js Font we use.
+ * Avoids a hard type dependency on opentype.js (which is loaded differently
+ * on server vs. client).
  */
-export function extractTextContours(
+export interface OpenTypeFontLike {
+  getAdvanceWidth(text: string, fontSize: number): number;
+  getPath(text: string, x: number, y: number, fontSize: number): { commands: PathCommand[] };
+}
+
+/**
+ * Extract centered text contours from an ALREADY-PARSED opentype font.
+ * Pure (no fs / no fetch) → runs identically on server and in the browser.
+ * fontSize = desired cap height in mm. Returns contours in mm, centered at (0,0).
+ */
+export function contoursFromFont(
+  font: OpenTypeFontLike,
   text: string,
-  fontId: string,
   fontSize: number
 ): Point[][] {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const opentype = require("opentype.js");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const fs = require("fs");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const path = require("path");
-
-  const fontPath = path.join(process.cwd(), "public", "fonts", `${fontId}.ttf`);
-  const fontBuffer = fs.readFileSync(fontPath);
-  const arrayBuffer = fontBuffer.buffer.slice(
-    fontBuffer.byteOffset,
-    fontBuffer.byteOffset + fontBuffer.byteLength
-  ) as ArrayBuffer;
-  const font = opentype.parse(arrayBuffer);
-
   const textWidth = font.getAdvanceWidth(text, fontSize);
   const startX = -textWidth / 2;
   const textPath = font.getPath(text, startX, 0, fontSize);

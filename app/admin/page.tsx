@@ -566,7 +566,7 @@ export default function AdminPage() {
                 <select value={testGcode.shapeType} onChange={(e) => setTestGcode((t) => ({ ...t, shapeType: e.target.value }))}
                   className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
                   {KEYRING_SHAPES.map((s) => (
-                    <option key={s.id} value={s.id}>{s.emoji} {s.label}</option>
+                    <option key={s.id} value={s.id}>{s.label}</option>
                   ))}
                 </select>
               </div>
@@ -577,7 +577,7 @@ export default function AdminPage() {
                 <select value={testGcode.holePosition} onChange={(e) => setTestGcode((t) => ({ ...t, holePosition: e.target.value }))}
                   className="border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
                   {KEYRING_HOLE_POSITIONS.map((h) => (
-                    <option key={h.id} value={h.id}>{h.emoji} {h.label}</option>
+                    <option key={h.id} value={h.id}>{h.label}</option>
                   ))}
                 </select>
               </div>

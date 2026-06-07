@@ -52,14 +52,14 @@ export const KEYRING_FONTS = [
 ];
 
 export const KEYRING_SHAPES = [
-  { id: "auto",  label: "Automatisk", emoji: "⬛", description: "Tilpasses teksten" },
-  { id: "heart", label: "Hjerte",     emoji: "❤️", description: "Hjerteform" },
-  { id: "oval",  label: "Oval",       emoji: "⬭",  description: "Oval form" },
+  { id: "auto",  label: "Automatisk", description: "Tilpasses teksten" },
+  { id: "heart", label: "Hjerte",     description: "Hjerteform" },
+  { id: "oval",  label: "Oval",       description: "Oval form" },
 ];
 
 export const KEYRING_HOLE_POSITIONS = [
-  { id: "top",  label: "Øverst",   emoji: "⬆️", description: "Hullet sidder over teksten" },
-  { id: "side", label: "I siden",  emoji: "⬅️", description: "Hullet sidder til venstre for teksten" },
+  { id: "top",  label: "Øverst",  description: "Hullet sidder over teksten" },
+  { id: "side", label: "I siden", description: "Hullet sidder til venstre for teksten" },
 ];
 
 // ─── Price calculation ────────────────────────────────────────────────────────
@@ -181,24 +181,31 @@ export function getShapePolygon(
   const hh = heightMm / 2;
 
   if (shapeType === "heart") {
-    // Heart curve parameterized
-    const pts: Point[] = [];
+    // Classic heart parametric. Normalize against its TRUE bounding box and scale
+    // UNIFORMLY (preserve aspect) so it reads as a proper heart instead of a
+    // stretched blob, then center it on the origin.
+    const raw: Point[] = [];
     for (let i = 0; i < steps; i++) {
       const t = (i / steps) * 2 * Math.PI;
-      // Classic heart parametric (scale to fit hw × hh)
       const rx = 16 * Math.sin(t) ** 3;
       const ry =
         13 * Math.cos(t) -
         5 * Math.cos(2 * t) -
         2 * Math.cos(3 * t) -
         Math.cos(4 * t);
-      // rx range: [-16, 16], ry range: [-17, 13] → scale to fit
-      pts.push({
-        x: (rx / 16) * hw,
-        y: -(ry / 13) * hh, // flip Y so top is up
-      });
+      raw.push({ x: rx, y: ry }); // y-up: lobes at top, tip at bottom
     }
-    return pts;
+    let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+    for (const p of raw) {
+      if (p.x < mnx) mnx = p.x;
+      if (p.x > mxx) mxx = p.x;
+      if (p.y < mny) mny = p.y;
+      if (p.y > mxy) mxy = p.y;
+    }
+    const rcx = (mnx + mxx) / 2, rcy = (mny + mxy) / 2;
+    // Fit inside widthMm × heightMm, uniform scale (no distortion).
+    const s = Math.min(widthMm / (mxx - mnx), heightMm / (mxy - mny));
+    return raw.map((p) => ({ x: (p.x - rcx) * s, y: (p.y - rcy) * s }));
   }
 
   if (shapeType === "oval") {

@@ -24,14 +24,8 @@ export default function Header({ siteName, logoEmoji, logoImage, primaryColor }:
           <Link href="/" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
             Shop
           </Link>
-          <Link href="/noglering" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
-            🔑 Nøglering
-          </Link>
           <Link href="/om" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
             Om mig
-          </Link>
-          <Link href="/admin" className="text-gray-400 hover:text-gray-600 font-medium transition-colors text-sm">
-            Admin
           </Link>
           <Link
             href="/kurv"
