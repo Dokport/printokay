@@ -10,7 +10,7 @@ import Image from "next/image";
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
-const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[] };
+const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[] };
 const SESSION_KEY = "po_adm";
 
 function getStoredPw(): string | null {
@@ -132,8 +132,21 @@ export default function AdminPage() {
     fd.append("file", file);
     const res = await authedFetch("/api/upload", { method: "POST", body: fd });
     const data = await res.json();
-    if (data.url) setForm((f) => ({ ...f, image: data.url }));
+    if (data.url) {
+      setForm((f) => {
+        const imgs = [...(f.images ?? []), data.url];
+        return { ...f, images: imgs, image: imgs[0] };
+      });
+    }
     setUploading(false);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function removeImage(url: string) {
+    setForm((f) => {
+      const imgs = (f.images ?? []).filter((u) => u !== url);
+      return { ...f, images: imgs, image: imgs[0] ?? "" };
+    });
   }
 
   async function saveFilaments(filaments: FilamentSpool[]) {
@@ -162,7 +175,10 @@ export default function AdminPage() {
 
   function startEdit(product: Product) {
     setEditingId(product.id);
-    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: product.image, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [] });
+    const imgs = product.images && product.images.length > 0
+      ? product.images
+      : product.image ? [product.image] : [];
+    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [] });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -342,24 +358,33 @@ export default function AdminPage() {
               </div>
 
               <div className="sm:col-span-2 flex flex-col gap-2">
-                <label className="text-sm text-gray-600 font-medium">Produktbillede</label>
-                <div className="flex items-start gap-4">
-                  <label className={`flex flex-col items-center justify-center w-36 h-36 rounded-2xl border-2 border-dashed cursor-pointer transition-colors ${uploading ? "border-purple-300 bg-purple-50" : "border-gray-200 hover:border-purple-400 hover:bg-purple-50"}`}>
+                <label className="text-sm text-gray-600 font-medium">
+                  Produktbilleder
+                  <span className="text-gray-400 font-normal ml-1">(første billede vises som primært)</span>
+                </label>
+                <div className="flex flex-wrap items-start gap-3">
+                  {(form.images ?? []).map((url, idx) => (
+                    <div key={url} className="relative w-28 h-28 rounded-2xl overflow-hidden border border-gray-200 flex-shrink-0 group">
+                      <Image src={url} alt={`Billede ${idx + 1}`} fill className="object-cover" unoptimized />
+                      {idx === 0 && (
+                        <span className="absolute top-1 left-1 bg-purple-600 text-white text-xs px-1.5 py-0.5 rounded-full font-medium">1.</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeImage(url)}
+                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >×</button>
+                    </div>
+                  ))}
+                  {/* Add image button */}
+                  <label className={`flex flex-col items-center justify-center w-28 h-28 rounded-2xl border-2 border-dashed cursor-pointer transition-colors flex-shrink-0 ${uploading ? "border-purple-300 bg-purple-50" : "border-gray-200 hover:border-purple-400 hover:bg-purple-50"}`}>
                     {uploading ? (
-                      <span className="text-purple-500 text-sm font-medium">Uploader...</span>
-                    ) : form.image ? (
-                      <div className="relative w-full h-full rounded-2xl overflow-hidden">
-                        <Image src={form.image} alt="Preview" fill className="object-cover" unoptimized />
-                      </div>
+                      <span className="text-purple-500 text-xs font-medium text-center px-2">Uploader...</span>
                     ) : (
-                      <><span className="text-3xl mb-1">📷</span><span className="text-xs text-gray-400 text-center px-2">Klik for at uploade billede</span></>
+                      <><span className="text-3xl mb-1">📷</span><span className="text-xs text-gray-400 text-center px-2">Tilføj billede</span></>
                     )}
-                    <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                    <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploading} />
                   </label>
-                  {form.image && (
-                    <button type="button" onClick={() => { setForm((f) => ({ ...f, image: "" })); if (fileRef.current) fileRef.current.value = ""; }}
-                      className="text-sm text-red-400 hover:text-red-600 mt-2">Fjern billede</button>
-                  )}
                 </div>
               </div>
               <div className="sm:col-span-2 flex gap-3 items-center">
@@ -377,9 +402,9 @@ export default function AdminPage() {
             {products.map((p) => (
               <div key={p.id} className="bg-white rounded-2xl px-5 py-4 shadow-sm flex items-center gap-4">
                 <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-purple-50 flex-shrink-0 flex items-center justify-center">
-                  {p.image && p.image !== "/products/placeholder.jpg" ? (
-                    <Image src={p.image} alt={p.name} fill className="object-cover" unoptimized />
-                  ) : <span className="text-2xl">{p.emoji}</span>}
+                  {(() => { const thumb = (p.images?.[0]) || p.image; return thumb && thumb !== "/products/placeholder.jpg" ? (
+                    <Image src={thumb} alt={p.name} fill className="object-cover" unoptimized />
+                  ) : <span className="text-2xl">{p.emoji}</span>; })()}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-800">{p.name}</p>

@@ -23,9 +23,18 @@ export default function ProductCard({ product, primaryColor, bgColor, categoryLa
   const [added, setAdded] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
+  const [imgIndex, setImgIndex] = useState(0);
 
   // Per-slot selection: slotId -> filamentId
   const [slotChoices, setSlotChoices] = useState<Record<string, string>>({});
+
+  // All images for this product (images array takes precedence over single image)
+  const allImages = (product.images && product.images.length > 0
+    ? product.images
+    : product.image ? [product.image] : []
+  ).filter(hasRealImage);
+  const hasImages = allImages.length > 0;
+  const currentImg = allImages[imgIndex] ?? "";
 
   const slots = product.colorSlots ?? [];
   const hasSlots = slots.length > 0;
@@ -66,8 +75,32 @@ export default function ProductCard({ product, primaryColor, bgColor, categoryLa
   return (
     <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col">
       <div className="relative h-52 flex items-center justify-center" style={{ background: cardBg }}>
-        {hasRealImage(product.image) ? (
-          <Image src={product.image} alt={product.name} fill className="object-cover" unoptimized />
+        {hasImages ? (
+          <>
+            <Image src={currentImg} alt={`${product.name} ${imgIndex + 1}`} fill className="object-cover" unoptimized />
+            {allImages.length > 1 && (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setImgIndex((i) => (i - 1 + allImages.length) % allImages.length); }}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white flex items-center justify-center text-xs hover:bg-black/60 transition-colors z-10"
+                >‹</button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setImgIndex((i) => (i + 1) % allImages.length); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-black/40 text-white flex items-center justify-center text-xs hover:bg-black/60 transition-colors z-10"
+                >›</button>
+                <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1 z-10">
+                  {allImages.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={(e) => { e.stopPropagation(); setImgIndex(i); }}
+                      className="w-1.5 h-1.5 rounded-full transition-colors"
+                      style={{ backgroundColor: i === imgIndex ? "white" : "rgba(255,255,255,0.45)" }}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </>
         ) : (
           <span className="text-7xl">{product.emoji}</span>
         )}

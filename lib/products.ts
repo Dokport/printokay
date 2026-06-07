@@ -8,7 +8,8 @@ export type Product = {
   name: string;
   description: string;
   price: number; // in DKK øre (e.g. 4900 = 49 kr)
-  image: string;
+  image: string;    // primary image (kept for backward compat)
+  images?: string[]; // all images incl. primary; if set, takes precedence over image
   emoji: string;
   category: string; // dynamic — defined in settings.json
   material: string; // e.g. "PLA", "PETG", "TPU" — empty string means not specified
