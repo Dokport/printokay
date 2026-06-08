@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Product, formatPrice, MATERIALS } from "@/lib/products";
+import { Product, formatPrice, formatPrintTime, MATERIALS } from "@/lib/products";
 import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_THEMES } from "@/lib/settings";
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
 import type { Order } from "@/lib/orders";
@@ -10,7 +10,7 @@ import Image from "next/image";
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
-const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[] };
+const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printMinutes: "" };
 const SESSION_KEY = "po_adm";
 
 function getStoredPw(): string | null {
@@ -203,7 +203,7 @@ export default function AdminPage() {
     const imgs = product.images && product.images.length > 0
       ? product.images
       : product.image ? [product.image] : [];
-    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [] });
+    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printMinutes: product.printMinutes ? String(product.printMinutes) : "" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -380,6 +380,26 @@ export default function AdminPage() {
                 <input type="url" value={form.modelUrl} onChange={(e) => setForm({ ...form, modelUrl: e.target.value })}
                   placeholder="https://www.printables.com/model/..."
                   className="border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400" />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-sm text-gray-600 font-medium">
+                  🕐 Printtid <span className="text-gray-400 font-normal">(minutter — vises i bestillinger)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={form.printMinutes}
+                    onChange={(e) => setForm({ ...form, printMinutes: e.target.value })}
+                    placeholder="fx 90"
+                    className="w-32 border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                  {form.printMinutes && Number(form.printMinutes) > 0 && (
+                    <span className="text-sm text-gray-500">= {formatPrintTime(Number(form.printMinutes))}</span>
+                  )}
+                </div>
               </div>
 
               <div className="sm:col-span-2 flex flex-col gap-2">
@@ -616,6 +636,12 @@ export default function AdminPage() {
                   const itemCount = items.reduce((n, it) => n + (it.quantity ?? 1), 0);
                   const c = order.customer;
 
+                  // Total print time across all items
+                  const totalPrintMinutes = items.reduce((sum, it) => {
+                    const prod = products.find((p) => p.name === it.name);
+                    return sum + (prod?.printMinutes ?? 0) * (it.quantity ?? 1);
+                  }, 0);
+
                 return (
                     <div key={order.id} className="border border-gray-100 rounded-2xl p-4">
                       <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
@@ -628,6 +654,11 @@ export default function AdminPage() {
                           </span>
                           <span className="text-sm text-gray-500">📅 {dateStr} kl. {timeStr}</span>
                           <span className="font-bold text-gray-800">{((order.total ?? 0) / 100).toFixed(0)} kr</span>
+                          {totalPrintMinutes > 0 && (
+                            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">
+                              🕐 {formatPrintTime(totalPrintMinutes)}
+                            </span>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -653,6 +684,8 @@ export default function AdminPage() {
                         {items.map((item, i) => {
                           const k = item.keyring;
                           const twoColors = k && k.baseColorHex !== k.textColorHex;
+                          const itemProduct = products.find((p) => p.name === item.name);
+                          const itemPrintMin = itemProduct?.printMinutes;
                           return (
                             <div key={i} className="bg-gray-50 rounded-xl p-3">
                               <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -662,6 +695,11 @@ export default function AdminPage() {
                                     <span className="font-medium text-gray-800">{item.name}</span>
                                     {item.quantity > 1 && (
                                       <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">×{item.quantity}</span>
+                                    )}
+                                    {itemPrintMin && (
+                                      <span className="text-xs text-blue-500">
+                                        🕐 {formatPrintTime(itemPrintMin * (item.quantity ?? 1))}
+                                      </span>
                                     )}
                                   </div>
                                   {item.description && (
