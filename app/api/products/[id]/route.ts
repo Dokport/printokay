@@ -51,6 +51,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     material: body.material ?? products[idx].material ?? "",
     modelUrl: body.modelUrl ?? products[idx].modelUrl ?? "",
     colorSlots: body.colorSlots ?? products[idx].colorSlots ?? [],
+    printMinutes: body.printMinutes ? Number(body.printMinutes) : products[idx].printMinutes,
+    filamentGrams: body.filamentGrams ? Number(body.filamentGrams) : products[idx].filamentGrams,
+    materialCost: body.materialCost ? Math.round(parseFloat(body.materialCost) * 100) : products[idx].materialCost,
   };
 
   await writeProducts(products);

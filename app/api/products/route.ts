@@ -36,6 +36,9 @@ export async function POST(req: NextRequest) {
     material: body.material || "",
     modelUrl: body.modelUrl || "",
     colorSlots: body.colorSlots ?? [],
+    ...(body.printMinutes ? { printMinutes: Number(body.printMinutes) } : {}),
+    ...(body.filamentGrams ? { filamentGrams: Number(body.filamentGrams) } : {}),
+    ...(body.materialCost ? { materialCost: Math.round(parseFloat(body.materialCost) * 100) } : {}),
   };
 
   products.push(newProduct);

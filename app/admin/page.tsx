@@ -10,7 +10,7 @@ import Image from "next/image";
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
-const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printMinutes: "", filamentGrams: "", materialCost: "" };
+const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "" };
 const SESSION_KEY = "po_adm";
 
 function getStoredPw(): string | null {
@@ -203,7 +203,8 @@ export default function AdminPage() {
     const imgs = product.images && product.images.length > 0
       ? product.images
       : product.image ? [product.image] : [];
-    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printMinutes: product.printMinutes ? String(product.printMinutes) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "" });
+    const pm = product.printMinutes ?? 0;
+    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printHours: pm ? String(Math.floor(pm / 60)) : "", printMins: pm ? String(pm % 60) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -212,7 +213,9 @@ export default function AdminPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setProductMsg("");
     const url = editingId ? `/api/products/${editingId}` : "/api/products";
-    const res = await authedFetch(url, { method: editingId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const printMinutes = (Number(form.printHours) * 60 + Number(form.printMins)) || undefined;
+    const payload = { ...form, printMinutes };
+    const res = await authedFetch(url, { method: editingId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     if (res.ok) {
       const updated = await authedFetch("/api/products").then((r) => r.json());
       setProducts(updated); setForm(EMPTY_FORM); setEditingId(null);
@@ -384,18 +387,33 @@ export default function AdminPage() {
 
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-gray-600 font-medium">
-                  🕐 Printtid <span className="text-gray-400 font-normal">(minutter — vises i bestillinger)</span>
+                  🕐 Printtid <span className="text-gray-400 font-normal">(vises i bestillinger)</span>
                 </label>
                 <div className="flex items-center gap-2">
-                  <input
-                    type="number" min="1" step="1"
-                    value={form.printMinutes}
-                    onChange={(e) => setForm({ ...form, printMinutes: e.target.value })}
-                    placeholder="fx 90"
-                    className="w-32 border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400"
-                  />
-                  {form.printMinutes && Number(form.printMinutes) > 0 && (
-                    <span className="text-sm text-gray-500">= {formatPrintTime(Number(form.printMinutes))}</span>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number" min="0" step="1"
+                      value={form.printHours}
+                      onChange={(e) => setForm({ ...form, printHours: e.target.value })}
+                      placeholder="0"
+                      className="w-16 border border-gray-200 rounded-xl px-3 py-2.5 text-center focus:outline-none focus:ring-2 focus:ring-purple-400"
+                    />
+                    <span className="text-sm text-gray-500">t</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number" min="0" max="59" step="1"
+                      value={form.printMins}
+                      onChange={(e) => setForm({ ...form, printMins: e.target.value })}
+                      placeholder="0"
+                      className="w-16 border border-gray-200 rounded-xl px-3 py-2.5 text-center focus:outline-none focus:ring-2 focus:ring-purple-400"
+                    />
+                    <span className="text-sm text-gray-500">min</span>
+                  </div>
+                  {(Number(form.printHours) > 0 || Number(form.printMins) > 0) && (
+                    <span className="text-sm text-gray-400">
+                      = {formatPrintTime(Number(form.printHours) * 60 + Number(form.printMins))}
+                    </span>
                   )}
                 </div>
               </div>
