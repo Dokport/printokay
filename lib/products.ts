@@ -16,6 +16,8 @@ export type Product = {
   modelUrl: string; // link to 3D model file (e.g. Printables, Thingiverse) — admin only
   colorSlots: ColorSlot[]; // named color areas — empty means no color customization
   printMinutes?: number;   // estimated print time in minutes — admin only
+  filamentGrams?: number;  // filament usage in grams — admin only
+  materialCost?: number;   // material cost in DKK øre — admin only
 };
 
 export const MATERIALS = ["PLA", "PETG", "TPU", "ABS", "ASA", "Resin"];

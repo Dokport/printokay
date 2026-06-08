@@ -10,7 +10,7 @@ import Image from "next/image";
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
-const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printMinutes: "" };
+const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printMinutes: "", filamentGrams: "", materialCost: "" };
 const SESSION_KEY = "po_adm";
 
 function getStoredPw(): string | null {
@@ -203,7 +203,7 @@ export default function AdminPage() {
     const imgs = product.images && product.images.length > 0
       ? product.images
       : product.image ? [product.image] : [];
-    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printMinutes: product.printMinutes ? String(product.printMinutes) : "" });
+    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printMinutes: product.printMinutes ? String(product.printMinutes) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -388,9 +388,7 @@ export default function AdminPage() {
                 </label>
                 <div className="flex items-center gap-2">
                   <input
-                    type="number"
-                    min="1"
-                    step="1"
+                    type="number" min="1" step="1"
                     value={form.printMinutes}
                     onChange={(e) => setForm({ ...form, printMinutes: e.target.value })}
                     placeholder="fx 90"
@@ -398,6 +396,44 @@ export default function AdminPage() {
                   />
                   {form.printMinutes && Number(form.printMinutes) > 0 && (
                     <span className="text-sm text-gray-500">= {formatPrintTime(Number(form.printMinutes))}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-sm text-gray-600 font-medium">
+                  🧵 Filamentforbrug <span className="text-gray-400 font-normal">(gram)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number" min="0" step="0.1"
+                    value={form.filamentGrams}
+                    onChange={(e) => setForm({ ...form, filamentGrams: e.target.value })}
+                    placeholder="fx 12"
+                    className="w-32 border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                  {form.filamentGrams && Number(form.filamentGrams) > 0 && (
+                    <span className="text-sm text-gray-500">{Number(form.filamentGrams).toFixed(1)} g</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-sm text-gray-600 font-medium">
+                  💰 Materialepris <span className="text-gray-400 font-normal">(kr — intern kostpris)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number" min="0" step="0.5"
+                    value={form.materialCost}
+                    onChange={(e) => setForm({ ...form, materialCost: e.target.value })}
+                    placeholder="fx 3.50"
+                    className="w-32 border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                  {form.materialCost && Number(form.materialCost) > 0 && form.price && Number(form.price) > 0 && (
+                    <span className="text-sm text-gray-500">
+                      → margin {(Number(form.price) - Number(form.materialCost)).toFixed(2)} kr
+                    </span>
                   )}
                 </div>
               </div>
@@ -636,10 +672,18 @@ export default function AdminPage() {
                   const itemCount = items.reduce((n, it) => n + (it.quantity ?? 1), 0);
                   const c = order.customer;
 
-                  // Total print time across all items
+                  // Total print time, grams and material cost across all items
                   const totalPrintMinutes = items.reduce((sum, it) => {
                     const prod = products.find((p) => p.name === it.name);
                     return sum + (prod?.printMinutes ?? 0) * (it.quantity ?? 1);
+                  }, 0);
+                  const totalGrams = items.reduce((sum, it) => {
+                    const prod = products.find((p) => p.name === it.name);
+                    return sum + (prod?.filamentGrams ?? 0) * (it.quantity ?? 1);
+                  }, 0);
+                  const totalMatCost = items.reduce((sum, it) => {
+                    const prod = products.find((p) => p.name === it.name);
+                    return sum + (prod?.materialCost ?? 0) * (it.quantity ?? 1);
                   }, 0);
 
                 return (
@@ -657,6 +701,16 @@ export default function AdminPage() {
                           {totalPrintMinutes > 0 && (
                             <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">
                               🕐 {formatPrintTime(totalPrintMinutes)}
+                            </span>
+                          )}
+                          {totalGrams > 0 && (
+                            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+                              🧵 {totalGrams.toFixed(1)} g
+                            </span>
+                          )}
+                          {totalMatCost > 0 && (
+                            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">
+                              💰 {(totalMatCost / 100).toFixed(2)} kr
                             </span>
                           )}
                         </div>
@@ -686,6 +740,8 @@ export default function AdminPage() {
                           const twoColors = k && k.baseColorHex !== k.textColorHex;
                           const itemProduct = products.find((p) => p.name === item.name);
                           const itemPrintMin = itemProduct?.printMinutes;
+                          const itemGrams = itemProduct?.filamentGrams;
+                          const itemMatCost = itemProduct?.materialCost;
                           return (
                             <div key={i} className="bg-gray-50 rounded-xl p-3">
                               <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -699,6 +755,16 @@ export default function AdminPage() {
                                     {itemPrintMin && (
                                       <span className="text-xs text-blue-500">
                                         🕐 {formatPrintTime(itemPrintMin * (item.quantity ?? 1))}
+                                      </span>
+                                    )}
+                                    {itemGrams && (
+                                      <span className="text-xs text-gray-400">
+                                        🧵 {(itemGrams * (item.quantity ?? 1)).toFixed(1)} g
+                                      </span>
+                                    )}
+                                    {itemMatCost && (
+                                      <span className="text-xs text-gray-400">
+                                        💰 {((itemMatCost / 100) * (item.quantity ?? 1)).toFixed(2)} kr
                                       </span>
                                     )}
                                   </div>
