@@ -36,12 +36,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const idx = products.findIndex((p) => p.id === id);
   if (idx === -1) return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
 
+  const images: string[] = body.images && body.images.length > 0
+    ? body.images
+    : body.image ? [body.image] : (products[idx].images ?? []);
   products[idx] = {
     ...products[idx],
     name: body.name,
     description: body.description,
     price: Math.round(parseFloat(body.price) * 100),
-    image: body.image || products[idx].image,
+    image: images[0] || products[idx].image,
+    images,
     emoji: body.emoji || products[idx].emoji,
     category: body.category,
     material: body.material ?? products[idx].material ?? "",
