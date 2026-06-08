@@ -73,8 +73,8 @@ export default function ProductCard({ product, primaryColor, bgColor, categoryLa
   const cardBg = `color-mix(in srgb, ${bgColor} 60%, white)`;
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col">
-      <div className="relative h-52 flex items-center justify-center" style={{ background: cardBg }}>
+    <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow flex flex-col">
+      <div className="relative h-52 flex items-center justify-center overflow-hidden rounded-t-2xl" style={{ background: cardBg }}>
         {hasImages ? (
           <>
             <Image src={currentImg} alt={`${product.name} ${imgIndex + 1}`} fill className="object-cover" unoptimized />
