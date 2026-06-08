@@ -452,8 +452,8 @@ export default function KeyringConfigurator() {
 
         {/* Text input */}
         <div>
-          <label className="text-sm font-semibold text-gray-700 mb-1.5 block">
-            Tekst på nøgleringen
+          <label className="text-sm font-semibold mb-1.5 block" style={{ color: primaryColor }}>
+            ✏️ Tekst på nøgleringen
           </label>
           <input
             type="text"
@@ -468,8 +468,12 @@ export default function KeyringConfigurator() {
             onBlur={() => { setEditingText(false); if (!text.trim()) setText("Dit navn"); }}
             placeholder="Skriv din tekst her..."
             maxLength={20}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 text-gray-800 text-base"
-            style={{ "--tw-ring-color": primaryColor } as React.CSSProperties}
+            className="w-full px-4 py-3 rounded-xl border-2 focus:outline-none focus:ring-2 bg-white text-gray-800 text-lg font-medium shadow-sm"
+            style={{
+              borderColor: primaryColor,
+              "--tw-ring-color": primaryColor,
+              boxShadow: `0 0 0 3px ${primaryColor}22`,
+            } as React.CSSProperties}
           />
           <p className="text-xs text-gray-400 mt-1">{text.length}/20 tegn</p>
         </div>
