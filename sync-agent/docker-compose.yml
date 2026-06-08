@@ -1,0 +1,33 @@
+# Portainer stack for the printokay sync-agent.
+#
+# Deploy: Portainer → Stacks → Add stack → Git repository
+#   Repo + compose path: sync-agent/docker-compose.yml
+# Set the environment variables below in Portainer's stack UI (not in git).
+#
+# The agent must share Bambuddy's Docker network so it can reach Bambuddy by
+# container name. Set BAMBUDDY_NETWORK to that network's name (Portainer →
+# Networks) and BAMBUDDY_URL to http://<bambuddy-container-name>:<port>.
+
+services:
+  sync-agent:
+    build: .
+    restart: unless-stopped
+    environment:
+      BAMBUDDY_URL: ${BAMBUDDY_URL}
+      BAMBUDDY_API_KEY: ${BAMBUDDY_API_KEY}
+      SHOP_URL: ${SHOP_URL}
+      SHOP_SYNC_TOKEN: ${SHOP_SYNC_TOKEN}
+      SYNC_INTERVAL: ${SYNC_INTERVAL:-600}
+      # Optional overrides if Bambuddy's /docs shows different paths/fields:
+      BAMBUDDY_SPOOLS_PATH: ${BAMBUDDY_SPOOLS_PATH:-/api/v1/spools}
+      BAMBUDDY_UPLOAD_PATH: ${BAMBUDDY_UPLOAD_PATH:-/api/v1/library/files/upload}
+      BAMBUDDY_FILES_PATH: ${BAMBUDDY_FILES_PATH:-/api/v1/library/files}
+      BAMBUDDY_UPLOAD_FIELD: ${BAMBUDDY_UPLOAD_FIELD:-file}
+      FALLBACK_COST_PER_KG_ORE: ${FALLBACK_COST_PER_KG_ORE:-0}
+    networks:
+      - bambuddy
+
+networks:
+  bambuddy:
+    external: true
+    name: ${BAMBUDDY_NETWORK}

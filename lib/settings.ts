@@ -6,6 +6,10 @@ export type FilamentSpool = {
   material: string; // "PLA"
   colorHex: string; // "#1a1a2e"
   inStock: boolean;
+  // ── Bambuddy-synkronisering (valgfri — kun sat på synkroniserede spoler) ──
+  sourceId?: string;        // Bambuddy spole-id; manuelt oprettede spoler har ingen
+  remainingGrams?: number;  // restvægt fra Bambuddy
+  costPerKg?: number;       // i øre — fallback til at udregne materialepris for modeller
 };
 
 export type KeyringSizeOption = {

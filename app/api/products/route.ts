@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
     ...(body.printMinutes ? { printMinutes: Number(body.printMinutes) } : {}),
     ...(body.filamentGrams ? { filamentGrams: Number(body.filamentGrams) } : {}),
     ...(body.materialCost ? { materialCost: Math.round(parseFloat(body.materialCost) * 100) } : {}),
+    ...(body.modelFile ? { modelFile: body.modelFile } : {}),
   };
 
   products.push(newProduct);
