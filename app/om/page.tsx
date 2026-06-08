@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { SiteSettings, DEFAULT_SETTINGS } from "@/lib/settings";
 import { readJsonFile } from "@/lib/storage";
 
@@ -12,9 +13,17 @@ export default async function OmPage() {
       <h1 className="text-3xl font-bold mb-6" style={{ color: s.primaryColor }}>Om mig 👋</h1>
 
       <div className="bg-white rounded-2xl p-8 shadow-sm space-y-4 text-gray-700 leading-relaxed">
-        <p className="text-lg">
-          <strong style={{ color: s.primaryColor }}>{s.aboutName}</strong>
-        </p>
+        {/* Profile header — image + name side by side if image exists */}
+        <div className="flex items-center gap-5">
+          {s.aboutImage && (
+            <div className="relative w-24 h-24 rounded-2xl overflow-hidden flex-shrink-0 border border-gray-100 shadow-sm">
+              <Image src={s.aboutImage} alt={s.aboutName} fill className="object-cover" unoptimized />
+            </div>
+          )}
+          <p className="text-lg">
+            <strong style={{ color: s.primaryColor }}>{s.aboutName}</strong>
+          </p>
+        </div>
         <p>{s.aboutIntro}</p>
         {s.aboutExtra && <p>{s.aboutExtra}</p>}
 

@@ -74,6 +74,10 @@ export default function AdminPage() {
   const logoFileRef = useRef<HTMLInputElement>(null);
   const [logoUploading, setLogoUploading] = useState(false);
 
+  // About image upload
+  const aboutImageRef = useRef<HTMLInputElement>(null);
+  const [aboutImageUploading, setAboutImageUploading] = useState(false);
+
   // New shipping form
   const EMPTY_SHIPPING = { name: "", price: "", minDays: "3", maxDays: "7" };
   const [newShipping, setNewShipping] = useState(EMPTY_SHIPPING);
@@ -166,6 +170,19 @@ export default function AdminPage() {
     });
     setSettings((s) => ({ ...s, filaments }));
     setFilamentSaving(false);
+  }
+
+  async function handleAboutImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAboutImageUploading(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await authedFetch("/api/upload", { method: "POST", body: fd });
+    const data = await res.json();
+    if (data.url) setSettings((s) => ({ ...s, aboutImage: data.url }));
+    setAboutImageUploading(false);
+    if (aboutImageRef.current) aboutImageRef.current.value = "";
   }
 
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -924,6 +941,27 @@ export default function AdminPage() {
           <div className="bg-white rounded-2xl p-6 shadow-sm">
             <h2 className="font-semibold text-gray-800 mb-4">👋 Om mig-siden</h2>
             <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-sm text-gray-600 font-medium">Profilbillede</label>
+                <div className="flex items-center gap-4">
+                  {settings.aboutImage ? (
+                    <div className="relative w-24 h-24 rounded-2xl overflow-hidden border border-gray-200 flex-shrink-0">
+                      <Image src={settings.aboutImage} alt="Profilbillede" fill className="object-cover" unoptimized />
+                      <button
+                        type="button"
+                        onClick={() => setSettings((s) => ({ ...s, aboutImage: "" }))}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs hover:bg-red-600"
+                      >×</button>
+                    </div>
+                  ) : (
+                    <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center text-gray-300 text-3xl flex-shrink-0">👤</div>
+                  )}
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-xl border cursor-pointer text-sm font-medium transition-colors ${aboutImageUploading ? "border-purple-300 bg-purple-50 text-purple-400" : "border-gray-200 hover:border-purple-400 hover:bg-purple-50 text-gray-600"}`}>
+                    {aboutImageUploading ? "Uploader…" : settings.aboutImage ? "Skift billede" : "Upload billede"}
+                    <input ref={aboutImageRef} type="file" accept="image/*" className="hidden" onChange={handleAboutImageUpload} disabled={aboutImageUploading} />
+                  </label>
+                </div>
+              </div>
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-gray-600 font-medium">Dit navn</label>
                 <input value={settings.aboutName} onChange={(e) => setSettings((s) => ({ ...s, aboutName: e.target.value }))}

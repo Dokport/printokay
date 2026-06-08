@@ -41,6 +41,7 @@ export type SiteSettings = {
   heroTitle: string;
   footerText: string;
   aboutName: string;
+  aboutImage: string;
   aboutIntro: string;
   aboutExtra: string;
   aboutEmail: string;
@@ -62,6 +63,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   heroTitle: "🖨️ Print Okay",
   footerText: "Lavet med 💜 og en 3D printer",
   aboutName: "Hej! Jeg hedder [Dit navn]",
+  aboutImage: "",
   aboutIntro: "Jeg har min egen 3D printer og laver alle mine produkter selv derhjemme.",
   aboutExtra: "Jeg er altid åben for specialbestillinger!",
   aboutEmail: "din@email.dk",
