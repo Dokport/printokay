@@ -1,17 +1,27 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCart } from "@/lib/cartContext";
 
 type Props = { siteName: string; logoEmoji: string; logoImage?: string; primaryColor: string; accentColor: string };
 
 export default function Header({ siteName, logoEmoji, logoImage, primaryColor }: Props) {
   const { totalItems } = useCart();
+  const pathname = usePathname();
+
+  const handleHomeClick = (e: React.MouseEvent) => {
+    if (pathname === "/") {
+      e.preventDefault();
+      window.dispatchEvent(new Event("shop:reset"));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
 
   return (
     <header className="bg-white shadow-sm sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
-        <Link href="/" className="flex items-center gap-2 min-w-0">
+        <Link href="/" onClick={handleHomeClick} className="flex items-center gap-2 min-w-0">
           {logoImage ? (
             <img src={logoImage} alt={siteName} className="h-8 w-8 sm:h-9 sm:w-9 object-cover rounded-lg flex-shrink-0" />
           ) : (
@@ -21,7 +31,7 @@ export default function Header({ siteName, logoEmoji, logoImage, primaryColor }:
         </Link>
 
         <nav className="flex items-center gap-3 sm:gap-6 flex-shrink-0">
-          <Link href="/" className="text-sm sm:text-base text-gray-600 hover:text-gray-900 font-medium transition-colors">
+          <Link href="/" onClick={handleHomeClick} className="text-sm sm:text-base text-gray-600 hover:text-gray-900 font-medium transition-colors">
             Shop
           </Link>
           <Link href="/om" className="text-sm sm:text-base text-gray-600 hover:text-gray-900 font-medium transition-colors whitespace-nowrap">

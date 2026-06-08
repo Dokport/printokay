@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { Product } from "@/lib/products";
 import { SiteSettings } from "@/lib/settings";
@@ -19,6 +19,13 @@ const KEYRING_TAB = "__noglering__";
 export default function ShopClient({ products, settings }: Props) {
   const [activeCategory, setActiveCategory] = useState<string>("alle");
   const configRef = useRef<HTMLDivElement>(null);
+
+  // Reset to shop view when header logo/Shop link is clicked while already on "/"
+  useEffect(() => {
+    const handler = () => setActiveCategory("alle");
+    window.addEventListener("shop:reset", handler);
+    return () => window.removeEventListener("shop:reset", handler);
+  }, []);
 
   const filtered =
     activeCategory === "alle"
