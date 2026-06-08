@@ -1,17 +1,18 @@
 {
   "siteName": "printOKAY",
   "logoEmoji": "⭐",
-  "tagline": "3D printede figurer, fidgets og gadgets — lavet med kærlighed og en masse filament!",
-  "primaryColor": "#16a34a",
-  "accentColor": "#0891b2",
-  "bgColor": "#f0fdf4",
+  "logoImage": "/products/1780673375615.jpeg",
+  "tagline": "Nøgleringe med navn, 3D printede figurer, fidgets og gadgets — lavet med masser af kærlighed og en smule filament!",
+  "primaryColor": "#ae91fd",
+  "accentColor": "#ffc575",
+  "bgColor": "#ffc676",
   "heroTitle": "printOKAY",
   "footerText": "Lavet med 💜 og en 3D printer",
-  "aboutName": "Hej! Jeg hedder [Dit navn]",
-  "aboutIntro": "Jeg har min egen 3D printer og printer alle mine produkter selv derhjemme. Hvert produkt bliver printet med omhu og kvalitetstjekket, inden det sendes afsted.",
+  "aboutName": "Hej! Jeg hedder Bjørka",
+  "aboutIntro": "Jeg har min egen 3D printer og printer alle mine produkter selv derhjemme. Hvert produkt bliver printet med omhu og kvalitetstjekket, inden det sendes afsted❤️.",
   "aboutExtra": "Jeg er altid åben for specialbestillinger — hvis du drømmer om et særligt produkt, så skriv til mig!",
   "aboutEmail": "din@email.dk",
-  "deliveryText": "Levering med PostNord — 3-7 hverdage\nGratis afhentning kan aftales\nJeg laver altid en ny, hvis noget er gået galt under forsendelsen",
+  "deliveryText": "Levering med PostNord — 3-7 hverdage\nGratis afhentning på Østerbro i København kan aftales\nJeg laver altid en ny, hvis noget er gået galt under forsendelsen",
   "categories": [
     {
       "id": "figur",
@@ -28,5 +29,71 @@
       "label": "Gadgets",
       "emoji": "🔧"
     }
-  ]
+  ],
+  "shippingOptions": [
+    {
+      "id": "postnord",
+      "name": "PostNord Pakke",
+      "price": 4900,
+      "minDays": 3,
+      "maxDays": 7
+    },
+    {
+      "id": "afhentning",
+      "name": "Afhentning (gratis)",
+      "price": 0,
+      "minDays": 1,
+      "maxDays": 3
+    }
+  ],
+  "filaments": [
+    {
+      "id": "fil-1780740468277",
+      "name": "Sort Mat",
+      "material": "PLA",
+      "colorHex": "#000000",
+      "inStock": true
+    },
+    {
+      "id": "fil-1780741317027",
+      "name": "Hvid Mat",
+      "material": "PLA",
+      "colorHex": "#ffffff",
+      "inStock": true
+    },
+    {
+      "id": "fil-1780742295835",
+      "name": "Rød Mat",
+      "material": "PLA",
+      "colorHex": "#ee3a3a",
+      "inStock": true
+    }
+  ],
+  "keyring": {
+    "enabled": true,
+    "sizes": [
+      {
+        "id": "small",
+        "label": "Lille",
+        "widthMm": 45,
+        "heightMm": 20,
+        "basePrice": 5900
+      },
+      {
+        "id": "medium",
+        "label": "Mellem",
+        "widthMm": 60,
+        "heightMm": 28,
+        "basePrice": 7900
+      },
+      {
+        "id": "large",
+        "label": "Stor",
+        "widthMm": 80,
+        "heightMm": 35,
+        "basePrice": 9900
+      }
+    ],
+    "twoColorSurcharge": 2000
+  }
 }

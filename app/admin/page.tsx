@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Product, formatPrice, MATERIALS } from "@/lib/products";
 import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_THEMES } from "@/lib/settings";
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
-import type { KeyringOrder } from "@/lib/orders";
+import type { Order } from "@/lib/orders";
 import Image from "next/image";
 
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
@@ -36,21 +36,20 @@ export default function AdminPage() {
   const [tab, setTab] = useState<"produkter" | "lager" | "bestillinger" | "indstillinger">("produkter");
 
   // Orders state
-  const [orders, setOrders] = useState<KeyringOrder[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
-  type CustomerInfo = { name: string; email: string; phone: string | null; address: string };
-  const [customerInfo, setCustomerInfo] = useState<Record<string, CustomerInfo | "loading" | "error">>({});
 
-  async function fetchCustomer(orderId: string) {
-    setCustomerInfo((prev) => ({ ...prev, [orderId]: "loading" }));
-    try {
-      const res = await authedFetch(`/api/orders/${orderId}/customer`);
-      const data = await res.json();
-      if (res.ok) setCustomerInfo((prev) => ({ ...prev, [orderId]: data }));
-      else setCustomerInfo((prev) => ({ ...prev, [orderId]: "error" }));
-    } catch {
-      setCustomerInfo((prev) => ({ ...prev, [orderId]: "error" }));
-    }
+  async function downloadStl(stlId: string, text: string) {
+    const r = await authedFetch(`/api/orders/${stlId}/stl`);
+    if (!r.ok) return;
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safe = (text || "noglering").replace(/[^a-zA-Z0-9æøåÆØÅ]/g, "_").slice(0, 20);
+    a.download = `noglering_${safe}_${stlId}.stl`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   // Products state
@@ -577,7 +576,7 @@ export default function AdminPage() {
 
           <div className="bg-white rounded-2xl p-6 shadow-sm">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-gray-800">📬 Nøglering-bestillinger</h2>
+              <h2 className="font-semibold text-gray-800">📬 Bestillinger</h2>
               <button
                 type="button"
                 onClick={() => {
@@ -599,7 +598,7 @@ export default function AdminPage() {
               <div className="text-center py-12 text-gray-400">
                 <p className="text-4xl mb-3">📭</p>
                 <p className="font-medium">Ingen bestillinger endnu</p>
-                <p className="text-sm mt-1">Bestillinger dukker op her når kunder køber nøgleringe</p>
+                <p className="text-sm mt-1">Bestillinger dukker op her når kunder køber noget</p>
               </div>
             ) : (
               <div className="flex flex-col gap-3">
@@ -607,129 +606,129 @@ export default function AdminPage() {
                   const date = new Date(order.createdAt);
                   const dateStr = date.toLocaleDateString("da-DK", { day: "numeric", month: "short", year: "numeric" });
                   const timeStr = date.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
-                  const twoColors = order.baseColorHex !== order.textColorHex;
+                  const items = order.items ?? [];
+                  const itemCount = items.reduce((n, it) => n + (it.quantity ?? 1), 0);
+                  const c = order.customer;
 
                   return (
                     <div key={order.id} className="border border-gray-100 rounded-2xl p-4">
-                      <div className="flex items-start justify-between gap-4 flex-wrap">
-                        <div className="flex-1 min-w-0">
-                          {/* Order header */}
-                          <div className="flex items-center gap-2 mb-2 flex-wrap">
-                            <span className="text-lg font-bold text-gray-800">
-                              &ldquo;{order.config?.text}&rdquo;
-                            </span>
-                            <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-mono">
-                              {order.size?.label ?? order.config?.sizeId}
-                            </span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${order.status === "printed" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                              {order.status === "printed" ? "✓ Printet" : "⏳ Afventer"}
-                            </span>
-                          </div>
-
-                          {/* Details row */}
-                          <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
-                            <span>📅 {dateStr} kl. {timeStr}</span>
-                            <span className="font-mono text-xs text-gray-400">{order.id}</span>
-                            <span className="font-semibold text-gray-700">{((order.pricePaid ?? 0) / 100).toFixed(0)} kr</span>
-                          </div>
-
-                          {/* Font & shape */}
-                          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-                            <span>Font: {order.config?.font?.replace(/-/g, " ")}</span>
-                            <span>Form: {order.config?.shapeType}</span>
-                          </div>
-
-                          {/* Color swatches */}
-                          <div className="flex items-center gap-3 mt-2">
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-4 h-4 rounded-full border border-gray-200 flex-shrink-0"
-                                style={{ backgroundColor: order.baseColorHex }} />
-                              <span className="text-xs text-gray-500">{order.baseFilamentName} (basis)</span>
-                            </div>
-                            {twoColors && (
-                              <>
-                                <span className="text-gray-300">+</span>
-                                <div className="flex items-center gap-1.5">
-                                  <div className="w-4 h-4 rounded-full border border-gray-200 flex-shrink-0"
-                                    style={{ backgroundColor: order.textColorHex }} />
-                                  <span className="text-xs text-gray-500">{order.textFilamentName} (tekst)</span>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                          {/* Customer info */}
-                          <div className="mt-3">
-                            {!customerInfo[order.id] ? (
-                              <button
-                                type="button"
-                                onClick={() => fetchCustomer(order.id)}
-                                className="text-xs text-purple-500 hover:text-purple-700 underline"
-                              >
-                                Vis kundeinfo & adresse
-                              </button>
-                            ) : customerInfo[order.id] === "loading" ? (
-                              <span className="text-xs text-gray-400">Henter...</span>
-                            ) : customerInfo[order.id] === "error" ? (
-                              <span className="text-xs text-red-400">Kunne ikke hente kundeinfo</span>
-                            ) : (
-                              <div className="text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2 space-y-0.5">
-                                {(() => { const c = customerInfo[order.id] as CustomerInfo; return (<>
-                                  <p><span className="text-gray-400">Navn:</span> {c.name}</p>
-                                  <p><span className="text-gray-400">Email:</span> {c.email}</p>
-                                  {c.phone && <p><span className="text-gray-400">Tlf:</span> {c.phone}</p>}
-                                  <p><span className="text-gray-400">Adresse:</span> {c.address}</p>
-                                </>); })()}
-                              </div>
-                            )}
-                          </div>
+                      <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-gray-800">
+                            {itemCount} {itemCount === 1 ? "vare" : "varer"}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${order.status === "printed" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                            {order.status === "printed" ? "✓ Færdig" : "⏳ Afventer"}
+                          </span>
+                          <span className="text-sm text-gray-500">📅 {dateStr} kl. {timeStr}</span>
+                          <span className="font-bold text-gray-800">{((order.total ?? 0) / 100).toFixed(0)} kr</span>
                         </div>
-
-                        {/* Actions */}
-                        <div className="flex flex-col gap-2 flex-shrink-0">
-                          {order.stlGenerated ? (
-                            <a
-                              href={`/api/orders/${order.id}/stl`}
-                              download
-                              onClick={(e) => {
-                                // Add auth header via fetch + blob download
-                                e.preventDefault();
-                                authedFetch(`/api/orders/${order.id}/stl`)
-                                  .then((r) => r.blob())
-                                  .then((blob) => {
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement("a");
-                                    a.href = url;
-                                    a.download = `noglering_${order.config?.text ?? "unknown"}_${order.id}.stl`;
-                                    a.click();
-                                    URL.revokeObjectURL(url);
-                                  });
-                              }}
-                              className="bg-blue-600 text-white text-xs px-3 py-2 rounded-xl font-semibold hover:bg-blue-700 transition-colors text-center"
-                            >
-                              ⬇️ Download STL
-                            </a>
-                          ) : (
-                            <span className="text-xs text-gray-400 italic text-center">STL ikke klar</span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const newStatus = order.status === "pending" ? "printed" : "pending";
-                              await authedFetch("/api/orders", {
-                                method: "PATCH",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ orderId: order.id, status: newStatus }),
-                              });
-                              setOrders((prev) => prev.map((o) =>
-                                o.id === order.id ? { ...o, status: newStatus } : o
-                              ));
-                            }}
-                            className={`text-xs px-3 py-2 rounded-xl font-semibold transition-colors text-center ${order.status === "printed" ? "bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-600" : "bg-green-100 text-green-700 hover:bg-green-200"}`}
-                          >
-                            {order.status === "printed" ? "Markér som afventer" : "✓ Markér printet"}
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const newStatus = order.status === "pending" ? "printed" : "pending";
+                            await authedFetch("/api/orders", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ orderId: order.id, status: newStatus }),
+                            });
+                            setOrders((prev) => prev.map((o) =>
+                              o.id === order.id ? { ...o, status: newStatus } : o
+                            ));
+                          }}
+                          className={`text-xs px-3 py-2 rounded-xl font-semibold transition-colors text-center flex-shrink-0 ${order.status === "printed" ? "bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-600" : "bg-green-100 text-green-700 hover:bg-green-200"}`}
+                        >
+                          {order.status === "printed" ? "Markér som afventer" : "✓ Markér færdig"}
+                        </button>
                       </div>
+
+                      {/* Line items */}
+                      <div className="flex flex-col gap-2">
+                        {items.map((item, i) => {
+                          const k = item.keyring;
+                          const twoColors = k && k.baseColorHex !== k.textColorHex;
+                          return (
+                            <div key={i} className="bg-gray-50 rounded-xl p-3">
+                              <div className="flex items-start justify-between gap-3 flex-wrap">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {item.emoji && <span>{item.emoji}</span>}
+                                    <span className="font-medium text-gray-800">{item.name}</span>
+                                    {item.quantity > 1 && (
+                                      <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">×{item.quantity}</span>
+                                    )}
+                                  </div>
+                                  {item.description && (
+                                    <p className="text-xs text-gray-400 mt-0.5">{item.description}</p>
+                                  )}
+
+                                  {/* Keyring colors */}
+                                  {k && (
+                                    <div className="flex items-center gap-3 mt-1.5">
+                                      <div className="flex items-center gap-1.5">
+                                        <div className="w-4 h-4 rounded-full border border-gray-200 flex-shrink-0" style={{ backgroundColor: k.baseColorHex }} />
+                                        <span className="text-xs text-gray-500">{k.baseFilamentName} (basis)</span>
+                                      </div>
+                                      {twoColors && (
+                                        <>
+                                          <span className="text-gray-300">+</span>
+                                          <div className="flex items-center gap-1.5">
+                                            <div className="w-4 h-4 rounded-full border border-gray-200 flex-shrink-0" style={{ backgroundColor: k.textColorHex }} />
+                                            <span className="text-xs text-gray-500">{k.textFilamentName} (tekst)</span>
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Product color choices */}
+                                  {item.colorChoices && item.colorChoices.length > 0 && (
+                                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                                      {item.colorChoices.map((cc, j) => (
+                                        <div key={j} className="flex items-center gap-1.5">
+                                          <div className="w-4 h-4 rounded-full border border-gray-200 flex-shrink-0" style={{ backgroundColor: cc.filamentColor }} />
+                                          <span className="text-xs text-gray-500">{cc.filamentName} ({cc.slotLabel})</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {item.note && (
+                                    <p className="text-xs text-gray-500 mt-1.5 italic">📝 {item.note}</p>
+                                  )}
+                                </div>
+
+                                {/* Per-item STL download (keyrings only) */}
+                                {k && (
+                                  k.stlGenerated ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => downloadStl(k.stlId, k.config.text)}
+                                      className="bg-blue-600 text-white text-xs px-3 py-2 rounded-xl font-semibold hover:bg-blue-700 transition-colors flex-shrink-0"
+                                    >
+                                      ⬇️ STL
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs text-gray-400 italic flex-shrink-0">STL ikke klar</span>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Customer / shipping */}
+                      {c && (c.name || c.email || c.address) && (
+                        <div className="text-xs text-gray-600 bg-purple-50/60 rounded-xl px-3 py-2 space-y-0.5 mt-3">
+                          {c.name && <p><span className="text-gray-400">Navn:</span> {c.name}</p>}
+                          {c.email && <p><span className="text-gray-400">Email:</span> {c.email}</p>}
+                          {c.phone && <p><span className="text-gray-400">Tlf:</span> {c.phone}</p>}
+                          {c.address && <p><span className="text-gray-400">Adresse:</span> {c.address}</p>}
+                        </div>
+                      )}
+
+                      <p className="font-mono text-[10px] text-gray-300 mt-2">{order.id}</p>
                     </div>
                   );
                 })}

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { CartItem, getItemPrice } from "@/lib/cart";
 import { DEFAULT_SETTINGS, SiteSettings } from "@/lib/settings";
-import { readJsonFile } from "@/lib/storage";
+import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import { pendingCartKey } from "@/lib/fulfillment";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -67,36 +68,23 @@ export async function POST(req: NextRequest) {
     };
   });
 
-  // Extract keyring data for metadata (first keyring item, if any)
-  const keyringItem = items.find((i) => i.keyringData);
-  const keyringMeta = keyringItem?.keyringData;
-
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ["card"],
     line_items: lineItems,
     mode: "payment",
     shipping_address_collection: { allowed_countries: ["DK"] },
     shipping_options: stripeShippingOptions,
+    phone_number_collection: { enabled: true },
     success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/succes?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/kurv`,
-    ...(keyringMeta && {
-      metadata: {
-        hasKeyring: "true",
-        keyringText: keyringMeta.text,
-        keyringFont: keyringMeta.font,
-        keyringShape: keyringMeta.shapeType,
-        keyringSizeId: keyringMeta.sizeId,
-        keyringBaseFilamentId: keyringMeta.baseFilamentId,
-        keyringTextFilamentId: keyringMeta.textFilamentId,
-        keyringBaseFilamentName: keyringMeta.baseFilamentName,
-        keyringTextFilamentName: keyringMeta.textFilamentName,
-        keyringBaseColorHex: keyringMeta.baseColorHex,
-        keyringTextColorHex: keyringMeta.textColorHex,
-        keyringFontSize: String(keyringMeta.fontSize),
-        keyringHolePosition: keyringMeta.holePosition ?? "top",
-        keyringPrice: String(keyringMeta.price),
-      },
-    }),
+  });
+
+  // Stash the full cart server-side, keyed by the session id. The webhook (and
+  // the success-page fallback) read this back to build the order for ALL item
+  // types — so order creation never depends on the customer's browser.
+  await writeJsonFile(pendingCartKey(session.id), {
+    items,
+    createdAt: new Date().toISOString(),
   });
 
   return NextResponse.json({ url: session.url });

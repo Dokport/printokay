@@ -12,7 +12,7 @@
  * All functions are async so callers work the same way in both environments.
  */
 
-import { put, get } from "@vercel/blob";
+import { put, get, del } from "@vercel/blob";
 import fs from "fs";
 import path from "path";
 
@@ -53,6 +53,20 @@ export async function writeJsonFile<T>(filename: string, data: T): Promise<void>
   const filePath = path.join(process.cwd(), "data", filename);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+/** Best-effort delete. Never throws — a lingering file is harmless. */
+export async function deleteFile(filename: string): Promise<void> {
+  try {
+    if (useBlob) {
+      await del(filename);
+      return;
+    }
+    const filePath = path.join(process.cwd(), "data", filename);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {
+    // ignore
+  }
 }
 
 // ─── Binary files (e.g. STL) ──────────────────────────────────────────────────

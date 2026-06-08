@@ -2,17 +2,34 @@
   {
     "id": "pindsvin-1780670377245",
     "name": "Pindsvin",
-    "description": "Et Lille sødt pindsvin som er på størrelse med en lomme",
-    "price": 2000,
+    "description": "Et lille sødt pindsvin som er på størrelse med en lomme",
+    "price": 3100,
     "image": "/products/1780670239076.jpeg",
     "emoji": "🖨️",
-    "category": "figur"
+    "category": "figur",
+    "material": "PLA",
+    "modelUrl": "https://makerworld.com/en/models/2195485-pip-the-pocket-hog-free-commercial-use?from=search#profileId-2384224",
+    "customizable": true,
+    "colorSlots": [
+      {
+        "id": "slot-1780741627696",
+        "label": "Ansigt"
+      },
+      {
+        "id": "slot-1780741641062",
+        "label": "Pigge"
+      },
+      {
+        "id": "slot-1780741647746",
+        "label": "Øjne/næse"
+      }
+    ]
   },
   {
     "id": "springedderkop-1780670543099",
     "name": "Springedderkop",
     "description": "En lille sød edderkop ",
-    "price": 2200,
+    "price": 3500,
     "image": "/products/1780670466481.jpeg",
     "emoji": "🖨️",
     "category": "figur"
@@ -21,7 +38,7 @@
     "id": "klikker-1780670705334",
     "name": "Klikker",
     "description": "En god ting at pille ved",
-    "price": 3900,
+    "price": 4700,
     "image": "/products/1780670645777.jpeg",
     "emoji": "🖨️",
     "category": "fidget"
@@ -30,7 +47,7 @@
     "id": "sde-bjrne--1780670930798",
     "name": "Søde bjørne ",
     "description": "2 søde bjørne fx. til veninderne",
-    "price": 3500,
+    "price": 3800,
     "image": "/products/1780670861538.jpeg",
     "emoji": "🖨️",
     "category": "gadget"
@@ -39,27 +56,75 @@
     "id": "en-fidget-1780671102931",
     "name": "En fidget",
     "description": "En fidget ",
-    "price": 3400,
+    "price": 3900,
     "image": "/products/1780671021081.jpeg",
     "emoji": "🦊",
-    "category": "fidget"
-  },
-  {
-    "id": "batman-logo-1780671276465",
-    "name": "Batman logo",
-    "description": "Sejt logo fra batman filmen",
-    "price": 3200,
-    "image": "/products/1780671153851.jpeg",
-    "emoji": "🖨️",
-    "category": "figur"
+    "category": "fidget",
+    "material": "PLA",
+    "modelUrl": "",
+    "colorSlots": [
+      {
+        "id": "slot-1780741244412",
+        "label": "Del 1"
+      },
+      {
+        "id": "slot-1780741248829",
+        "label": "Del 2"
+      }
+    ]
   },
   {
     "id": "en-gyro--1780671958642",
     "name": "En gyro ",
     "description": "En nice gyro",
-    "price": 3700,
+    "price": 4300,
     "image": "/products/1780671894318.jpeg",
     "emoji": "🖨️",
     "category": "fidget"
+  },
+  {
+    "id": "et-sump-monster-1780672077819",
+    "name": "Et sump monster",
+    "description": "En figur",
+    "price": 4000,
+    "image": "/products/1780672014890.jpeg",
+    "emoji": "🖨️",
+    "category": "figur"
+  },
+  {
+    "id": "hjerte-spinner-1780675026906",
+    "name": "Hjerte spinner",
+    "description": "En spinner med hjerter på ",
+    "price": 4800,
+    "image": "/products/1780674970991.jpeg",
+    "emoji": "🖨️",
+    "category": "fidget"
+  },
+  {
+    "id": "blomst-1780675183837",
+    "name": "Blomst",
+    "description": "En blomst",
+    "price": 3100,
+    "image": "/products/1780675141719.jpeg",
+    "emoji": "🖨️",
+    "category": "figur"
+  },
+  {
+    "id": "capybara-flodsvin-1780675388563",
+    "name": "Capybara/ flodsvin",
+    "description": "En capybara figur som er lidt kunstnerisk ",
+    "price": 4100,
+    "image": "/products/1780675344622.jpeg",
+    "emoji": "🖨️",
+    "category": "figur"
+  },
+  {
+    "id": "panda-hjerte-nglering-1780679732107",
+    "name": "Panda hjerte nøglering",
+    "description": "En lille panda nøglering \nSom skal forstille et hjerte til 1 person",
+    "price": 3600,
+    "image": "/products/1780679615564.jpeg",
+    "emoji": "🖨️",
+    "category": "gadget"
   }
 ]
