@@ -38,6 +38,7 @@ export default function AdminPage() {
   // Orders state
   const [orders, setOrders] = useState<Order[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [showPrinted, setShowPrinted] = useState(false);
 
   async function downloadStl(stlId: string, text: string) {
     const r = await authedFetch(`/api/orders/${stlId}/stl`);
@@ -600,9 +601,14 @@ export default function AdminPage() {
                 <p className="font-medium">Ingen bestillinger endnu</p>
                 <p className="text-sm mt-1">Bestillinger dukker op her når kunder køber noget</p>
               </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {orders.map((order) => {
+            ) : (() => {
+              const byStatus = (status: string) =>
+                orders.filter((o) => o.status === status)
+                      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+              const pending = byStatus("pending");
+              const printed = byStatus("printed");
+
+              const renderOrder = (order: Order) => {
                   const date = new Date(order.createdAt);
                   const dateStr = date.toLocaleDateString("da-DK", { day: "numeric", month: "short", year: "numeric" });
                   const timeStr = date.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
@@ -610,7 +616,7 @@ export default function AdminPage() {
                   const itemCount = items.reduce((n, it) => n + (it.quantity ?? 1), 0);
                   const c = order.customer;
 
-                  return (
+                return (
                     <div key={order.id} className="border border-gray-100 rounded-2xl p-4">
                       <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -731,9 +737,51 @@ export default function AdminPage() {
                       <p className="font-mono text-[10px] text-gray-300 mt-2">{order.id}</p>
                     </div>
                   );
-                })}
-              </div>
-            )}
+              };
+
+              return (
+                <div className="flex flex-col gap-6">
+                  {/* Afventer */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-sm font-semibold text-amber-700 bg-amber-100 px-3 py-1 rounded-full">
+                        ⏳ Afventer — {pending.length}
+                      </span>
+                    </div>
+                    {pending.length === 0 ? (
+                      <p className="text-sm text-gray-400 italic px-1">Ingen afventende bestillinger 🎉</p>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {pending.map(renderOrder)}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Færdige */}
+                  {printed.length > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setShowPrinted((v) => !v)}
+                        className="flex items-center gap-2 mb-3 group"
+                      >
+                        <span className="text-sm font-semibold text-green-700 bg-green-100 px-3 py-1 rounded-full">
+                          ✓ Færdige — {printed.length}
+                        </span>
+                        <span className="text-xs text-gray-400 group-hover:text-gray-600 transition-colors">
+                          {showPrinted ? "▲ Skjul" : "▼ Vis"}
+                        </span>
+                      </button>
+                      {showPrinted && (
+                        <div className="flex flex-col gap-3">
+                          {printed.map(renderOrder)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Keyring price settings */}
