@@ -45,9 +45,10 @@ export async function POST(req: NextRequest) {
     ...(Array.isArray(body.colorZones) ? { colorZones: body.colorZones } : {}),
   };
 
-  // Auto-create colour zones/slots from the model when none were supplied.
-  if (newProduct.modelFile && (newProduct.colorSlots.length === 0 || !newProduct.colorZones)) {
-    const derived = await deriveColorSetup(newProduct.modelFile);
+  // Auto-create colour zones/slots from the display model when none were supplied.
+  const displayFile = newProduct.previewModel || newProduct.modelFile;
+  if (displayFile && (newProduct.colorSlots.length === 0 || !newProduct.colorZones)) {
+    const derived = await deriveColorSetup(displayFile);
     if (derived) {
       if (newProduct.colorSlots.length === 0) newProduct.colorSlots = derived.colorSlots;
       if (!newProduct.colorZones) newProduct.colorZones = derived.colorZones;

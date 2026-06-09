@@ -158,6 +158,25 @@ function applyMat(m: Mat, x: number, y: number, z: number): [number, number, num
 // in the same Bambu project, separate from the print plate(s).
 const SHOW_PLATE_NAME = "show";
 
+// Per-object extruder/filament assignment from model_settings.config. Used to
+// colour models that are multi-colour *per object* (e.g. multi-part prints) rather
+// than via per-triangle paint.
+function objectExtruders(files: Record<string, Uint8Array>): Map<string, number> {
+  const m = new Map<string, number>();
+  const msName = Object.keys(files).find((n) => /model_settings\.config$/i.test(n));
+  if (!msName) return m;
+  const xml = strFromU8(files[msName]);
+  const objRe = /<object\b([^>]*)>([\s\S]*?)<\/object>/gi;
+  let om: RegExpExecArray | null;
+  while ((om = objRe.exec(xml))) {
+    const id = om[1].match(/\bid="([^"]+)"/)?.[1];
+    if (!id) continue;
+    const ext = om[2].match(/key="extruder"[^>]*value="(\d+)"/i)?.[1];
+    if (ext) m.set(id, Number(ext));
+  }
+  return m;
+}
+
 function showPlateObjectIds(files: Record<string, Uint8Array>): Set<string> | null {
   const msName = Object.keys(files).find((n) => /model_settings\.config$/i.test(n));
   if (!msName) return null;
@@ -188,8 +207,10 @@ function showPlateObjectIds(files: Record<string, Uint8Array>): Set<string> | nu
  *
  * If a plate named "Show" exists, only its objects are included.
  */
-function collectPlacements(files: Record<string, Uint8Array>): { meshXml: string; matrix: Mat }[] {
-  const out: { meshXml: string; matrix: Mat }[] = [];
+type Placement = { meshXml: string; matrix: Mat; extruder: number };
+
+function collectPlacements(files: Record<string, Uint8Array>): Placement[] {
+  const out: Placement[] = [];
   const rootName = Object.keys(files).find((n) => /3D\/3dmodel\.model$/i.test(n));
   if (!rootName) return out;
   const rootXml = strFromU8(files[rootName]);
@@ -227,21 +248,22 @@ function collectPlacements(files: Record<string, Uint8Array>): { meshXml: string
     return xml;
   };
 
-  const resolve = (objectid: string, acc: Mat) => {
+  const resolve = (objectid: string, acc: Mat, extruder: number) => {
     const def = resObjects.get(objectid);
     if (!def) return;
     if (def.components.length) {
       for (const c of def.components) {
         const combined = mat4Mul(parseTransform(c.transform), acc);
         const xml = c.path ? loadPathXml(c.path) : null;
-        if (xml && xml.includes("<vertex")) out.push({ meshXml: xml, matrix: combined });
+        if (xml && xml.includes("<vertex")) out.push({ meshXml: xml, matrix: combined, extruder });
       }
     } else if (def.innerXml.includes("<vertex")) {
-      out.push({ meshXml: def.innerXml, matrix: acc });
+      out.push({ meshXml: def.innerXml, matrix: acc, extruder });
     }
   };
 
   const showOnly = showPlateObjectIds(files); // null → all plates
+  const extruders = objectExtruders(files);
 
   const buildBlock = rootXml.match(/<build\b[^>]*>([\s\S]*?)<\/build>/i)?.[1] ?? "";
   const itemRe = /<item\b[^>]*\/?>/gi;
@@ -249,7 +271,7 @@ function collectPlacements(files: Record<string, Uint8Array>): { meshXml: string
   while ((im = itemRe.exec(buildBlock))) {
     const objectid = attr(im[0], "objectid") ?? "";
     if (showOnly && !showOnly.has(objectid)) continue; // keep only the "Show" plate
-    resolve(objectid, parseTransform(attr(im[0], "transform")));
+    resolve(objectid, parseTransform(attr(im[0], "transform")), extruders.get(objectid) ?? 1);
   }
   return out;
 }
@@ -264,14 +286,14 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
     for (const name of Object.keys(files)) {
       if (!/3D\/.*\.model$/i.test(name)) continue;
       const xml = strFromU8(files[name]);
-      if (xml.includes("<vertex")) placements.push({ meshXml: xml, matrix: IDENTITY.slice() });
+      if (xml.includes("<vertex")) placements.push({ meshXml: xml, matrix: IDENTITY.slice(), extruder: 1 });
     }
   }
 
   const positions: number[] = [];
   const zoneMap = new Map<string, number[]>();
 
-  for (const { meshXml, matrix } of placements) {
+  for (const { meshXml, matrix, extruder } of placements) {
     // Vertices for THIS mesh start at this offset in the combined buffer.
     const baseIndex = positions.length / 3;
 
@@ -292,29 +314,34 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
       const v2 = parseInt(attr(t, "v2") ?? "", 10);
       const v3 = parseInt(attr(t, "v3") ?? "", 10);
       if (Number.isNaN(v1) || Number.isNaN(v2) || Number.isNaN(v3)) continue;
-      const key = attr(t, "paint_color") ?? "default";
+      // Zone = per-triangle paint colour if present, else the object's extruder
+      // (so multi-part / per-object multi-colour models split into zones too).
+      const key = attr(t, "paint_color") ?? `e${extruder}`;
       let arr = zoneMap.get(key);
       if (!arr) zoneMap.set(key, (arr = []));
       arr.push(baseIndex + v1, baseIndex + v2, baseIndex + v3);
     }
   }
 
-  // Stable zone order: "default" first (base extruder), then by numeric value.
-  const ordered = [...zoneMap.entries()].sort((a, b) => {
-    if (a[0] === "default") return -1;
-    if (b[0] === "default") return 1;
-    const na = parseInt(a[0], 16), nb = parseInt(b[0], 16);
-    if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
-    return a[0].localeCompare(b[0]);
-  });
-
-  // Pair each zone with the model's filament colour by order.
+  // Map each zone to a filament-colour index:
+  //  - extruder zones ("e2") → that extruder (index = N-1)
+  //  - paint zones → by their sorted order among paint zones
   const modelColors = extractModelColors(files);
-  const zones: MeshZone[] = ordered.map(([key, indices], i) => ({
-    key,
-    indices,
-    color: modelColors[i],
-  }));
+  const paintKeys = [...zoneMap.keys()]
+    .filter((k) => !/^e\d+$/.test(k) && k !== "default")
+    .sort((a, b) => (parseInt(a, 16) || 0) - (parseInt(b, 16) || 0));
+  const paintOrder = new Map(paintKeys.map((k, i) => [k, i]));
+  const colorIndex = (key: string): number => {
+    const em = key.match(/^e(\d+)$/);
+    if (em) return Number(em[1]) - 1;
+    if (key === "default") return 0;
+    return paintOrder.get(key) ?? 0;
+  };
+
+  const zones: MeshZone[] = [...zoneMap.entries()]
+    .map(([key, indices]) => ({ key, indices, ci: colorIndex(key) }))
+    .sort((a, b) => a.ci - b.ci)
+    .map(({ key, indices, ci }) => ({ key, indices, color: modelColors[ci] }));
 
   return { positions, zones };
 }

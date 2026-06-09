@@ -83,15 +83,30 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       : {}),
   };
 
-  // Auto-create colour zones/slots from the model when missing (e.g. right after
-  // a new model upload), so the admin gets one slot per zone with the model's
-  // colours — no manual setup needed.
+  // Auto-create / self-heal colour zones from the DISPLAY model (preview ?? print).
+  // Re-derives when missing, when the model changed, or when the stored zone keys
+  // no longer match the model (e.g. after the parser learned per-object colours) —
+  // so saving an existing product fixes it. Slot labels are preserved by position.
   const p = products[idx];
-  if (p.modelFile && (modelChanged || !p.colorZones || (p.colorSlots?.length ?? 0) === 0)) {
-    const derived = await deriveColorSetup(p.modelFile);
+  const displayFile = p.previewModel || p.modelFile;
+  if (displayFile) {
+    const derived = await deriveColorSetup(displayFile);
     if (derived) {
-      if (modelChanged || (p.colorSlots?.length ?? 0) === 0) p.colorSlots = derived.colorSlots;
-      if (modelChanged || !p.colorZones) p.colorZones = derived.colorZones;
+      const storedKeys = (p.colorZones ?? []).map((z) => z.key).sort().join(",");
+      const freshKeys = derived.colorZones.map((z) => z.key).sort().join(",");
+      const stale =
+        modelChanged ||
+        !p.colorZones ||
+        (p.colorSlots?.length ?? 0) !== derived.colorSlots.length ||
+        storedKeys !== freshKeys;
+      if (stale) {
+        // Keep existing slot labels when the zone count is unchanged.
+        const prevSlots = p.colorSlots ?? [];
+        p.colorSlots = derived.colorSlots.map((s, i) =>
+          !modelChanged && prevSlots.length === derived.colorSlots.length ? { ...s, label: prevSlots[i].label } : s
+        );
+        p.colorZones = derived.colorZones;
+      }
     }
   }
 
