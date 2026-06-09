@@ -153,11 +153,40 @@ function applyMat(m: Mat, x: number, y: number, z: number): [number, number, num
   ];
 }
 
+// If the project has a plate named "Show", the shop renders only that plate's
+// objects — letting you pose (and optionally lighten) a dedicated display layout
+// in the same Bambu project, separate from the print plate(s).
+const SHOW_PLATE_NAME = "show";
+
+function showPlateObjectIds(files: Record<string, Uint8Array>): Set<string> | null {
+  const msName = Object.keys(files).find((n) => /model_settings\.config$/i.test(n));
+  if (!msName) return null;
+  const xml = strFromU8(files[msName]);
+  const plateRe = /<plate>([\s\S]*?)<\/plate>/gi;
+  let pm: RegExpExecArray | null;
+  while ((pm = plateRe.exec(xml))) {
+    const block = pm[1];
+    const name = block.match(/key="plater_name"[^>]*value="([^"]*)"/i)?.[1]?.trim().toLowerCase();
+    if (name !== SHOW_PLATE_NAME) continue;
+    const ids = new Set<string>();
+    const instRe = /<model_instance>([\s\S]*?)<\/model_instance>/gi;
+    let mi: RegExpExecArray | null;
+    while ((mi = instRe.exec(block))) {
+      const oid = mi[1].match(/key="object_id"[^>]*value="([^"]*)"/i)?.[1];
+      if (oid) ids.add(oid);
+    }
+    return ids.size ? ids : null;
+  }
+  return null;
+}
+
 /**
  * Resolve the build graph (3dmodel.model `<build><item>` → resource objects →
  * `<component>` paths to Objects/*.model) into a flat list of meshes, each with
  * its composed world transform. This places multi-object models correctly
  * (matching the build plate / posed layout) instead of stacking them at origin.
+ *
+ * If a plate named "Show" exists, only its objects are included.
  */
 function collectPlacements(files: Record<string, Uint8Array>): { meshXml: string; matrix: Mat }[] {
   const out: { meshXml: string; matrix: Mat }[] = [];
@@ -212,11 +241,15 @@ function collectPlacements(files: Record<string, Uint8Array>): { meshXml: string
     }
   };
 
+  const showOnly = showPlateObjectIds(files); // null → all plates
+
   const buildBlock = rootXml.match(/<build\b[^>]*>([\s\S]*?)<\/build>/i)?.[1] ?? "";
   const itemRe = /<item\b[^>]*\/?>/gi;
   let im: RegExpExecArray | null;
   while ((im = itemRe.exec(buildBlock))) {
-    resolve(attr(im[0], "objectid") ?? "", parseTransform(attr(im[0], "transform")));
+    const objectid = attr(im[0], "objectid") ?? "";
+    if (showOnly && !showOnly.has(objectid)) continue; // keep only the "Show" plate
+    resolve(objectid, parseTransform(attr(im[0], "transform")));
   }
   return out;
 }
