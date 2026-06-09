@@ -6,6 +6,8 @@ import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_TH
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
 import type { Order } from "@/lib/orders";
 import type { ColorZone } from "@/lib/products";
+import { parseThreeMf, parseThreeMfMeta } from "@/lib/threemf";
+import { upload } from "@vercel/blob/client";
 import ZoneMapper from "@/components/ZoneMapper";
 import Image from "next/image";
 
@@ -168,48 +170,91 @@ export default function AdminPage() {
     });
   }
 
-  // Auto mode: upload a Bambu project → shop fills in everything from the file.
+  // Store a (possibly large) model file. Big .3mf exceed the ~4.5 MB serverless
+  // body limit, so on Blob we upload straight from the browser; locally (no Blob)
+  // we fall back to the function endpoint. Returns the stored pathname.
+  async function uploadModelToStorage(file: File): Promise<string> {
+    const ext = file.name.split(".").pop()?.toLowerCase() || "3mf";
+    const pathname = `models/${Date.now()}.${ext}`;
+    try {
+      const blob = await upload(pathname, file, {
+        access: "private",
+        handleUploadUrl: "/api/blob-upload",
+        clientPayload: getStoredPw() ?? "",
+      });
+      return blob.pathname;
+    } catch {
+      // Local dev / no Blob token → function upload (no size limit locally).
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await authedFetch("/api/upload-model", { method: "POST", body: fd });
+      const d = await res.json();
+      if (!d.path) throw new Error(d.error ?? "Upload fejlede");
+      return d.path;
+    }
+  }
+
+  // Upload an extracted thumbnail (small) as the product image. Returns its URL.
+  async function uploadThumbnail(bytes: Uint8Array): Promise<string> {
+    const tf = new File([bytes as BlobPart], "thumb.png", { type: "image/png" });
+    const fd = new FormData();
+    fd.append("file", tf);
+    const res = await authedFetch("/api/upload", { method: "POST", body: fd });
+    const d = await res.json();
+    return d.url ?? "";
+  }
+
+  // Auto mode: parse the Bambu project IN THE BROWSER (instant) and pre-fill
+  // everything; the raw file is uploaded straight to storage.
   async function handleProjectUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setParsingModel(true);
     setProductMsg("");
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await authedFetch("/api/parse-model", { method: "POST", body: fd });
-    const d = await res.json();
-    if (res.ok && d.modelFile) {
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const { zones } = parseThreeMf(bytes);
+      if (!zones.length) throw new Error("Ingen 3D-geometri i filen (er den sliced?)");
+      const meta = parseThreeMfMeta(bytes);
+
+      const colorSlots = zones.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
+      const colorZones: ColorZone[] = zones.map((z, i) => ({ key: z.key, slotId: `slot-${i + 1}`, color: z.color }));
+
+      const modelFile = await uploadModelToStorage(file);
+      let image = "";
+      if (meta.thumbnail?.length) {
+        try { image = await uploadThumbnail(meta.thumbnail); } catch { /* image optional */ }
+      }
+
       setForm((f) => ({
         ...f,
-        name: d.name || f.name,
-        description: d.description || f.description,
-        material: d.material || f.material,
-        modelFile: d.modelFile,
-        image: d.image || f.image,
-        images: d.images?.length ? d.images : f.images,
-        colorSlots: d.colorSlots ?? f.colorSlots,
-        colorZones: d.colorZones ?? f.colorZones,
+        name: meta.title || f.name,
+        description: meta.description || f.description,
+        material: meta.material || f.material,
+        modelFile,
+        image,
+        images: image ? [image] : f.images,
+        colorSlots,
+        colorZones,
       }));
-    } else {
-      setProductMsg(d.error ?? "Kunne ikke læse projektfilen");
-      setTimeout(() => setProductMsg(""), 5000);
+    } catch (err) {
+      setProductMsg("Kunne ikke læse filen: " + (err instanceof Error ? err.message : "ukendt fejl"));
+      setTimeout(() => setProductMsg(""), 6000);
     }
     setParsingModel(false);
     if (projectFileRef.current) projectFileRef.current.value = "";
   }
 
+  // Manual mode: just upload the model file (no auto-fill).
   async function handleModelUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setModelUploading(true);
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await authedFetch("/api/upload-model", { method: "POST", body: fd });
-    const data = await res.json();
-    if (data.path) {
-      setForm((f) => ({ ...f, modelFile: data.path }));
-    } else {
-      setProductMsg(data.error ?? "Model-upload fejlede");
+    try {
+      const modelFile = await uploadModelToStorage(file);
+      setForm((f) => ({ ...f, modelFile }));
+    } catch (err) {
+      setProductMsg("Model-upload fejlede: " + (err instanceof Error ? err.message : ""));
       setTimeout(() => setProductMsg(""), 4000);
     }
     setModelUploading(false);
