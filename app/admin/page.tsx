@@ -5,12 +5,14 @@ import { Product, formatPrice, formatPrintTime, MATERIALS } from "@/lib/products
 import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_THEMES } from "@/lib/settings";
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
 import type { Order } from "@/lib/orders";
+import type { ColorZone } from "@/lib/products";
+import ZoneMapper from "@/components/ZoneMapper";
 import Image from "next/image";
 
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
-const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "", modelFile: "" };
+const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "", modelFile: "", colorZones: [] as ColorZone[] };
 const SESSION_KEY = "po_adm";
 
 function getStoredPw(): string | null {
@@ -224,7 +226,7 @@ export default function AdminPage() {
       ? product.images
       : product.image ? [product.image] : [];
     const pm = product.printMinutes ?? 0;
-    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printHours: pm ? String(Math.floor(pm / 60)) : "", printMins: pm ? String(pm % 60) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "", modelFile: product.modelFile ?? "" });
+    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printHours: pm ? String(Math.floor(pm / 60)) : "", printMins: pm ? String(pm % 60) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "", modelFile: product.modelFile ?? "", colorZones: product.colorZones ?? [] });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -432,6 +434,26 @@ export default function AdminPage() {
                   })()}
                 </div>
               </div>
+
+              {/* Color zone → slot mapping (only for saved products with an uploaded model) */}
+              {editingId && form.modelFile && products.find((p) => p.id === editingId)?.modelFile && (
+                <div className="sm:col-span-2 flex flex-col gap-2">
+                  <label className="text-sm text-gray-600 font-medium">
+                    🎨 Farvezoner <span className="text-gray-400 font-normal">(kobl modellens farver til farveområder kunden vælger)</span>
+                  </label>
+                  {form.colorSlots.length === 0 ? (
+                    <p className="text-xs text-amber-600">Tilføj mindst ét farveområde ovenfor for at mappe modellens zoner.</p>
+                  ) : (
+                    <ZoneMapper
+                      productId={editingId}
+                      version={form.modelFile}
+                      slots={form.colorSlots}
+                      value={form.colorZones}
+                      onChange={(zones) => setForm((f) => ({ ...f, colorZones: zones }))}
+                    />
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-gray-600 font-medium">

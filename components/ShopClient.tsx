@@ -18,6 +18,9 @@ const KEYRING_TAB = "__noglering__";
 
 export default function ShopClient({ products, settings }: Props) {
   const [activeCategory, setActiveCategory] = useState<string>("alle");
+  // Only one product card may be in colour-select mode at a time (keeps a single
+  // three.js canvas mounted). Holds the active product id.
+  const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const configRef = useRef<HTMLDivElement>(null);
 
   // Reset to shop view when header logo/Shop link is clicked while already on "/"
@@ -147,6 +150,8 @@ export default function ShopClient({ products, settings }: Props) {
               bgColor={settings.bgColor}
               categoryLabel={settings.categories.find((c) => c.id === product.category)?.label ?? product.category}
               filaments={settings.filaments ?? []}
+              isActive={activeProductId === product.id}
+              onActivate={setActiveProductId}
             />
           ))}
         </div>
