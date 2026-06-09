@@ -63,8 +63,11 @@ export default function AdminPage() {
   const [productMsg, setProductMsg] = useState("");
   const [uploading, setUploading] = useState(false);
   const [modelUploading, setModelUploading] = useState(false);
+  const [productMode, setProductMode] = useState<"auto" | "manual">("auto");
+  const [parsingModel, setParsingModel] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const modelFileRef = useRef<HTMLInputElement>(null);
+  const projectFileRef = useRef<HTMLInputElement>(null);
 
   // Settings state
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS);
@@ -163,6 +166,36 @@ export default function AdminPage() {
       const imgs = (f.images ?? []).filter((u) => u !== url);
       return { ...f, images: imgs, image: imgs[0] ?? "" };
     });
+  }
+
+  // Auto mode: upload a Bambu project → shop fills in everything from the file.
+  async function handleProjectUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParsingModel(true);
+    setProductMsg("");
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await authedFetch("/api/parse-model", { method: "POST", body: fd });
+    const d = await res.json();
+    if (res.ok && d.modelFile) {
+      setForm((f) => ({
+        ...f,
+        name: d.name || f.name,
+        description: d.description || f.description,
+        material: d.material || f.material,
+        modelFile: d.modelFile,
+        image: d.image || f.image,
+        images: d.images?.length ? d.images : f.images,
+        colorSlots: d.colorSlots ?? f.colorSlots,
+        colorZones: d.colorZones ?? f.colorZones,
+      }));
+    } else {
+      setProductMsg(d.error ?? "Kunne ikke læse projektfilen");
+      setTimeout(() => setProductMsg(""), 5000);
+    }
+    setParsingModel(false);
+    if (projectFileRef.current) projectFileRef.current.value = "";
   }
 
   async function handleModelUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -305,7 +338,84 @@ export default function AdminPage() {
       {tab === "produkter" && (
         <div>
           <div className="bg-white rounded-2xl p-6 shadow-sm mb-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">{editingId ? "✏️ Rediger produkt" : "➕ Tilføj nyt produkt"}</h2>
+            <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+              <h2 className="text-lg font-semibold text-gray-800">{editingId ? "✏️ Rediger produkt" : "➕ Tilføj nyt produkt"}</h2>
+              {!editingId && (
+                <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+                  {(["auto", "manual"] as const).map((m) => (
+                    <button key={m} type="button" onClick={() => setProductMode(m)}
+                      className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${productMode === m ? "bg-white shadow text-gray-800" : "text-gray-500 hover:text-gray-700"}`}>
+                      {m === "auto" ? "⚡ Auto" : "✏️ Manuel"}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── AUTO MODE: upload a Bambu project, shop fills the rest ── */}
+            {productMode === "auto" && !editingId ? (
+              !form.modelFile ? (
+                <label className={`flex flex-col items-center justify-center gap-2 py-12 rounded-2xl border-2 border-dashed cursor-pointer transition-colors ${parsingModel ? "border-purple-300 bg-purple-50" : "border-gray-300 hover:border-purple-400 hover:bg-purple-50"}`}>
+                  <span className="text-4xl">{parsingModel ? "⏳" : "📦"}</span>
+                  <span className="font-medium text-gray-700">{parsingModel ? "Læser projektfil…" : "Upload Bambu Studio projekt (.3mf)"}</span>
+                  <span className="text-xs text-gray-400">Navn, billede, materiale og farvezoner udfyldes automatisk</span>
+                  <input ref={projectFileRef} type="file" accept=".3mf,.stl" className="hidden" onChange={handleProjectUpload} disabled={parsingModel} />
+                </label>
+              ) : (
+                <form onSubmit={handleSave} className="flex flex-col gap-4">
+                  <div className="flex gap-4 items-start flex-wrap">
+                    {form.image && (
+                      <div className="relative w-28 h-28 rounded-2xl overflow-hidden border border-gray-200 flex-shrink-0">
+                        <Image src={form.image} alt="" fill className="object-cover" unoptimized />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-[200px] flex flex-col gap-1">
+                      <span className="text-xs text-green-600 font-medium">✓ Projekt indlæst — udfyld pris og kategori</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(form.colorZones ?? []).map((z, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
+                            <span className="w-3 h-3 rounded-full border border-gray-200" style={{ backgroundColor: z.color || "#ccc" }} />
+                            {form.colorSlots.find((s) => s.id === z.slotId)?.label ?? z.slotId}
+                          </span>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => setForm(EMPTY_FORM)} className="text-xs text-gray-400 hover:text-red-500 w-fit mt-1">Skift fil</button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="sm:col-span-2 flex flex-col gap-1">
+                      <label className="text-sm text-gray-600 font-medium">Navn</label>
+                      <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                    </div>
+                    <div className="sm:col-span-2 flex flex-col gap-1">
+                      <label className="text-sm text-gray-600 font-medium">Beskrivelse</label>
+                      <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none" rows={3} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm text-gray-600 font-medium">Pris (kr)</label>
+                      <input required type="number" min="1" step="0.5" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })}
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400" placeholder="fx 99" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-sm text-gray-600 font-medium">Kategori</label>
+                      <select required value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400">
+                        <option value="">— Vælg kategori —</option>
+                        {settings.categories.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 items-center">
+                    <button type="submit" disabled={saving} className="bg-purple-600 text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-purple-700 transition-colors disabled:opacity-60">
+                      {saving ? "Gemmer…" : "Gem produkt"}
+                    </button>
+                    {productMsg && <span className="text-green-600 font-medium text-sm">{productMsg}</span>}
+                  </div>
+                </form>
+              )
+            ) : (
             <form onSubmit={handleSave} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-gray-600 font-medium">Navn</label>
@@ -574,6 +684,7 @@ export default function AdminPage() {
                 {productMsg && <span className="text-green-600 font-medium text-sm">{productMsg}</span>}
               </div>
             </form>
+            )}
           </div>
 
           <div className="flex flex-col gap-3">
