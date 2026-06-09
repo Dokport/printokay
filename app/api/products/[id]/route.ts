@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Product } from "@/lib/products";
 import { isAdmin } from "@/lib/isAdmin";
 import { readJsonFile, writeJsonFile } from "@/lib/storage";
-import { deriveColorSetup } from "@/lib/productModel";
+import { analyzeModel, meshCacheKey } from "@/lib/productModel";
 
 async function readProducts(): Promise<Product[]> {
   return readJsonFile<Product[]>("products.json", []);
@@ -90,22 +90,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const p = products[idx];
   const displayFile = p.previewModel || p.modelFile;
   if (displayFile) {
-    const derived = await deriveColorSetup(displayFile);
-    if (derived) {
-      const storedKeys = (p.colorZones ?? []).map((z) => z.key).sort().join(",");
-      const freshKeys = derived.colorZones.map((z) => z.key).sort().join(",");
-      const stale =
-        modelChanged ||
-        !p.colorZones ||
-        (p.colorSlots?.length ?? 0) !== derived.colorSlots.length ||
-        storedKeys !== freshKeys;
-      if (stale) {
-        // Keep existing slot labels when the zone count is unchanged.
-        const prevSlots = p.colorSlots ?? [];
-        p.colorSlots = derived.colorSlots.map((s, i) =>
-          !modelChanged && prevSlots.length === derived.colorSlots.length ? { ...s, label: prevSlots[i].label } : s
-        );
-        p.colorZones = derived.colorZones;
+    const cacheKey = meshCacheKey(displayFile);
+    const cached = await readJsonFile<unknown>(cacheKey, null);
+    // Parse once when the model changed or its light mesh isn't cached yet.
+    if (modelChanged || !cached) {
+      const a = await analyzeModel(displayFile);
+      if (a) {
+        // Pre-warm the light display mesh so the first customer view is instant.
+        writeJsonFile(cacheKey, a.mesh).catch(() => {});
+        // Self-heal colour zones if they don't match the model.
+        const storedKeys = (p.colorZones ?? []).map((z) => z.key).sort().join(",");
+        const freshKeys = a.colorZones.map((z) => z.key).sort().join(",");
+        const stale =
+          modelChanged || !p.colorZones || (p.colorSlots?.length ?? 0) !== a.colorSlots.length || storedKeys !== freshKeys;
+        if (stale) {
+          const prevSlots = p.colorSlots ?? [];
+          p.colorSlots = a.colorSlots.map((s, i) =>
+            !modelChanged && prevSlots.length === a.colorSlots.length ? { ...s, label: prevSlots[i].label } : s
+          );
+          p.colorZones = a.colorZones;
+        }
       }
     }
   }
