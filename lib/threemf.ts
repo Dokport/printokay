@@ -21,6 +21,13 @@ import { unzipSync, strFromU8 } from "fflate";
 export type MeshZone = { key: string; indices: number[]; color?: string };
 export type ParsedMesh = { positions: number[]; zones: MeshZone[] };
 
+export type ProjectMeta = {
+  title?: string;
+  description?: string;
+  material?: string;
+  thumbnail?: Uint8Array; // a render PNG, if present
+};
+
 function attr(tag: string, name: string): string | null {
   const m = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
   return m ? m[1] : null;
@@ -59,6 +66,60 @@ function extractModelColors(files: Record<string, Uint8Array>): string[] {
     if (colors.length) return colors.map(normHex);
   }
   return [];
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?34;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#0?39;/g, "'")
+    .replace(/&nbsp;/g, " ");
+}
+
+function cleanText(raw: string): string {
+  // Bambu stores rich text double-encoded; decode twice, strip tags, collapse.
+  let s = decodeEntities(decodeEntities(raw));
+  s = s.replace(/<[^>]+>/g, " ");
+  return s.replace(/\s+/g, " ").trim();
+}
+
+function modelMeta(xml: string, name: string): string | undefined {
+  const m = xml.match(new RegExp(`<metadata name="${name}">([^<]*)</metadata>`));
+  return m ? cleanText(m[1]) : undefined;
+}
+
+/** Extract product metadata (name, description, material, thumbnail) from a .3mf. */
+export function parseThreeMfMeta(buffer: Uint8Array): ProjectMeta {
+  const files = unzipSync(buffer);
+  const meta: ProjectMeta = {};
+
+  const modelName = Object.keys(files).find((n) => /3D\/3dmodel\.model$/i.test(n));
+  if (modelName) {
+    const xml = strFromU8(files[modelName]);
+    meta.title = modelMeta(xml, "Title");
+    meta.description = modelMeta(xml, "Description");
+  }
+
+  const ps = Object.keys(files).find((n) => /project_settings\.config$/i.test(n));
+  if (ps) {
+    try {
+      const cfg = JSON.parse(strFromU8(files[ps]));
+      const t = cfg.filament_type;
+      if (Array.isArray(t) && t.length) meta.material = String(t[0]);
+    } catch { /* ignore */ }
+  }
+
+  // Prefer the nice rendered thumbnail; fall back to the plate image.
+  const thumbName =
+    Object.keys(files).find((n) => /thumbnail_middle\.png$/i.test(n)) ||
+    Object.keys(files).find((n) => /Metadata\/plate_1\.png$/i.test(n));
+  if (thumbName) meta.thumbnail = files[thumbName];
+
+  return meta;
 }
 
 export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
