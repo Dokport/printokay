@@ -18,6 +18,11 @@ export type Product = {
   printMinutes?: number;   // estimated print time in minutes — admin only
   filamentGrams?: number;  // filament usage in grams — admin only
   materialCost?: number;   // material cost in DKK øre — admin only
+  // ── Bambuddy-synkronisering ──
+  modelFile?: string;       // blob-sti til den fulde (multi-material) .3mf — bevares permanent
+  modelSyncedAt?: string;   // ISO-tid: modellen er uploadet til Bambuddy
+  bambuddyId?: string;      // Bambuddy library-fil-id
+  bambuddyStatsAt?: string; // ISO-tid: tid/gram/pris er hentet retur fra Bambuddy
 };
 
 export const MATERIALS = ["PLA", "PETG", "TPU", "ABS", "ASA", "Resin"];

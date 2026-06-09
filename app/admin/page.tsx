@@ -10,7 +10,7 @@ import Image from "next/image";
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
-const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "" };
+const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "", modelFile: "" };
 const SESSION_KEY = "po_adm";
 
 function getStoredPw(): string | null {
@@ -60,7 +60,9 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [productMsg, setProductMsg] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [modelUploading, setModelUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const modelFileRef = useRef<HTMLInputElement>(null);
 
   // Settings state
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS);
@@ -161,6 +163,24 @@ export default function AdminPage() {
     });
   }
 
+  async function handleModelUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setModelUploading(true);
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await authedFetch("/api/upload-model", { method: "POST", body: fd });
+    const data = await res.json();
+    if (data.path) {
+      setForm((f) => ({ ...f, modelFile: data.path }));
+    } else {
+      setProductMsg(data.error ?? "Model-upload fejlede");
+      setTimeout(() => setProductMsg(""), 4000);
+    }
+    setModelUploading(false);
+    if (modelFileRef.current) modelFileRef.current.value = "";
+  }
+
   async function saveFilaments(filaments: FilamentSpool[]) {
     setFilamentSaving(true);
     await authedFetch("/api/settings", {
@@ -204,7 +224,7 @@ export default function AdminPage() {
       ? product.images
       : product.image ? [product.image] : [];
     const pm = product.printMinutes ?? 0;
-    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printHours: pm ? String(Math.floor(pm / 60)) : "", printMins: pm ? String(pm % 60) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "" });
+    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printHours: pm ? String(Math.floor(pm / 60)) : "", printMins: pm ? String(pm % 60) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "", modelFile: product.modelFile ?? "" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -385,9 +405,40 @@ export default function AdminPage() {
                   className="border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-400" />
               </div>
 
+              {/* Model file upload + Bambuddy sync status */}
+              <div className="sm:col-span-2 flex flex-col gap-2">
+                <label className="text-sm text-gray-600 font-medium">
+                  📦 Modelfil <span className="text-gray-400 font-normal">(.3mf fra MakerWorld eller .stl — sendes til Bambuddy)</span>
+                </label>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className={`flex items-center gap-2 px-4 py-2 rounded-xl border cursor-pointer text-sm font-medium transition-colors ${modelUploading ? "border-purple-300 bg-purple-50 text-purple-400" : "border-gray-200 hover:border-purple-400 hover:bg-purple-50 text-gray-600"}`}>
+                    {modelUploading ? "Uploader…" : form.modelFile ? "Skift modelfil" : "Upload modelfil"}
+                    <input ref={modelFileRef} type="file" accept=".3mf,.stl" className="hidden" onChange={handleModelUpload} disabled={modelUploading} />
+                  </label>
+                  {form.modelFile && (
+                    <>
+                      <span className="text-xs text-gray-500 font-mono truncate max-w-[200px]">{form.modelFile.split("/").pop()}</span>
+                      <button type="button" onClick={() => setForm((f) => ({ ...f, modelFile: "" }))}
+                        className="text-xs text-red-400 hover:text-red-600">Fjern</button>
+                    </>
+                  )}
+                  {/* Sync status (only meaningful when editing an existing product) */}
+                  {editingId && (() => {
+                    const ep = products.find((p) => p.id === editingId);
+                    if (!ep?.modelFile) return null;
+                    if (ep.bambuddyStatsAt) return <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✓ Stats hentet</span>;
+                    if (ep.modelSyncedAt) return <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">✓ I Bambuddy</span>;
+                    return <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">⏳ Afventer Bambuddy</span>;
+                  })()}
+                </div>
+              </div>
+
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-gray-600 font-medium">
                   🕐 Printtid <span className="text-gray-400 font-normal">(vises i bestillinger)</span>
+                  {editingId && products.find((p) => p.id === editingId)?.bambuddyStatsAt && (
+                    <span className="ml-2 text-xs text-blue-500 font-normal">auto fra Bambuddy</span>
+                  )}
                 </label>
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1">
@@ -421,6 +472,9 @@ export default function AdminPage() {
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-gray-600 font-medium">
                   🧵 Filamentforbrug <span className="text-gray-400 font-normal">(gram)</span>
+                  {editingId && products.find((p) => p.id === editingId)?.bambuddyStatsAt && (
+                    <span className="ml-2 text-xs text-blue-500 font-normal">auto fra Bambuddy</span>
+                  )}
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -439,6 +493,9 @@ export default function AdminPage() {
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-gray-600 font-medium">
                   💰 Materialepris <span className="text-gray-400 font-normal">(kr — intern kostpris)</span>
+                  {editingId && products.find((p) => p.id === editingId)?.bambuddyStatsAt && (
+                    <span className="ml-2 text-xs text-blue-500 font-normal">auto fra Bambuddy</span>
+                  )}
                 </label>
                 <div className="flex items-center gap-2">
                   <input

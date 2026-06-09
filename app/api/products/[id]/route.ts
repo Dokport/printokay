@@ -39,21 +39,32 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const images: string[] = body.images && body.images.length > 0
     ? body.images
     : body.image ? [body.image] : (products[idx].images ?? []);
+
+  // If a new model file is uploaded, reset the Bambuddy sync state so the
+  // sidecar re-uploads it and re-fetches stats for the new file.
+  const prev = products[idx];
+  const newModelFile = body.modelFile !== undefined ? body.modelFile : prev.modelFile;
+  const modelChanged = body.modelFile !== undefined && body.modelFile !== prev.modelFile;
+
   products[idx] = {
-    ...products[idx],
+    ...prev,
     name: body.name,
     description: body.description,
     price: Math.round(parseFloat(body.price) * 100),
-    image: images[0] || products[idx].image,
+    image: images[0] || prev.image,
     images,
-    emoji: body.emoji || products[idx].emoji,
+    emoji: body.emoji || prev.emoji,
     category: body.category,
-    material: body.material ?? products[idx].material ?? "",
-    modelUrl: body.modelUrl ?? products[idx].modelUrl ?? "",
-    colorSlots: body.colorSlots ?? products[idx].colorSlots ?? [],
-    printMinutes: body.printMinutes ? Number(body.printMinutes) : products[idx].printMinutes,
-    filamentGrams: body.filamentGrams ? Number(body.filamentGrams) : products[idx].filamentGrams,
-    materialCost: body.materialCost ? Math.round(parseFloat(body.materialCost) * 100) : products[idx].materialCost,
+    material: body.material ?? prev.material ?? "",
+    modelUrl: body.modelUrl ?? prev.modelUrl ?? "",
+    colorSlots: body.colorSlots ?? prev.colorSlots ?? [],
+    printMinutes: body.printMinutes ? Number(body.printMinutes) : prev.printMinutes,
+    filamentGrams: body.filamentGrams ? Number(body.filamentGrams) : prev.filamentGrams,
+    materialCost: body.materialCost ? Math.round(parseFloat(body.materialCost) * 100) : prev.materialCost,
+    modelFile: newModelFile,
+    ...(modelChanged
+      ? { modelSyncedAt: undefined, bambuddyId: undefined, bambuddyStatsAt: undefined }
+      : {}),
   };
 
   await writeProducts(products);

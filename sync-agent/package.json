@@ -1,0 +1,14 @@
+{
+  "name": "printokay-sync-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Home-server sidecar that syncs filament (Bambuddy → shop) and models (shop → Bambuddy, with print-stat round-trip).",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
