@@ -63,6 +63,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     filamentGrams: body.filamentGrams ? Number(body.filamentGrams) : prev.filamentGrams,
     materialCost: body.materialCost ? Math.round(parseFloat(body.materialCost) * 100) : prev.materialCost,
     modelFile: newModelFile,
+    // Optional posed/light preview model for the shop's 3D view ("" clears it).
+    previewModel: body.previewModel !== undefined ? (body.previewModel || undefined) : prev.previewModel,
     // colorZones may be sent on save; a new model file invalidates them.
     ...(Array.isArray(body.colorZones) ? { colorZones: body.colorZones } : {}),
     // A new model file invalidates the Bambuddy sync state, the derived

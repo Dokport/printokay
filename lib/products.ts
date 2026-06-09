@@ -27,6 +27,7 @@ export type Product = {
   materialCost?: number;   // material cost in DKK øre — admin only
   // ── Bambuddy-synkronisering ──
   modelFile?: string;       // blob-sti til den fulde (multi-material) .3mf — bevares permanent
+  previewModel?: string;    // valgfri poseret/let .3mf til shoppens 3D-visning (samme zoner)
   modelSyncedAt?: string;   // ISO-tid: modellen er uploadet til Bambuddy
   bambuddyId?: string;      // Bambuddy library-fil-id
   bambuddyStatsAt?: string; // ISO-tid: tid/gram/pris er hentet retur fra Bambuddy

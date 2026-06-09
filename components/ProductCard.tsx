@@ -143,7 +143,7 @@ export default function ProductCard({
           <Product3DPreview
             productId={product.id}
             zoneColors={zoneColors}
-            version={product.modelFile}
+            version={product.previewModel || product.modelFile}
             className="w-full h-52"
           />
         ) : hasImages ? (

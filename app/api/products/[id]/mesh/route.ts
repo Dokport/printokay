@@ -19,11 +19,13 @@ export async function GET(
   const products = await readJsonFile<Product[]>("products.json", []);
   const product = products.find((p) => p.id === id);
 
-  if (!product?.modelFile) {
+  // Prefer the (posed/light) preview model for display; fall back to the print model.
+  const displayFile = product?.previewModel || product?.modelFile;
+  if (!displayFile) {
     return NextResponse.json({ error: "Ingen 3D-model" }, { status: 404 });
   }
 
-  const cacheKey = product.modelFile.replace(/\.[^.]+$/, "") + ".mesh.json";
+  const cacheKey = displayFile.replace(/\.[^.]+$/, "") + ".mesh.json";
 
   // Cached?
   const cached = await readJsonFile<ParsedMesh | null>(cacheKey, null);
@@ -33,7 +35,7 @@ export async function GET(
     });
   }
 
-  const raw = await readBinaryFile(product.modelFile);
+  const raw = await readBinaryFile(displayFile);
   if (!raw) {
     return NextResponse.json({ error: "Modelfil ikke fundet" }, { status: 404 });
   }

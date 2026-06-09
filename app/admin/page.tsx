@@ -14,7 +14,7 @@ import Image from "next/image";
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
-const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "", modelFile: "", colorZones: [] as ColorZone[] };
+const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "", modelFile: "", colorZones: [] as ColorZone[], previewModel: "" };
 const SESSION_KEY = "po_adm";
 
 function getStoredPw(): string | null {
@@ -65,11 +65,13 @@ export default function AdminPage() {
   const [productMsg, setProductMsg] = useState("");
   const [uploading, setUploading] = useState(false);
   const [modelUploading, setModelUploading] = useState(false);
+  const [previewUploading, setPreviewUploading] = useState(false);
   const [productMode, setProductMode] = useState<"auto" | "manual">("auto");
   const [parsingModel, setParsingModel] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const modelFileRef = useRef<HTMLInputElement>(null);
   const projectFileRef = useRef<HTMLInputElement>(null);
+  const previewFileRef = useRef<HTMLInputElement>(null);
 
   // Settings state
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS);
@@ -261,6 +263,22 @@ export default function AdminPage() {
     if (modelFileRef.current) modelFileRef.current.value = "";
   }
 
+  // Optional posed/light preview model for the shop's 3D view (same colour zones).
+  async function handlePreviewUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPreviewUploading(true);
+    try {
+      const previewModel = await uploadModelToStorage(file);
+      setForm((f) => ({ ...f, previewModel }));
+    } catch (err) {
+      setProductMsg("Preview-upload fejlede: " + (err instanceof Error ? err.message : ""));
+      setTimeout(() => setProductMsg(""), 4000);
+    }
+    setPreviewUploading(false);
+    if (previewFileRef.current) previewFileRef.current.value = "";
+  }
+
   async function saveFilaments(filaments: FilamentSpool[]) {
     setFilamentSaving(true);
     await authedFetch("/api/settings", {
@@ -304,7 +322,7 @@ export default function AdminPage() {
       ? product.images
       : product.image ? [product.image] : [];
     const pm = product.printMinutes ?? 0;
-    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printHours: pm ? String(Math.floor(pm / 60)) : "", printMins: pm ? String(pm % 60) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "", modelFile: product.modelFile ?? "", colorZones: product.colorZones ?? [] });
+    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printHours: pm ? String(Math.floor(pm / 60)) : "", printMins: pm ? String(pm % 60) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "", modelFile: product.modelFile ?? "", colorZones: product.colorZones ?? [], previewModel: product.previewModel ?? "" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -345,6 +363,27 @@ export default function AdminPage() {
   function applyTheme(theme: typeof COLOR_THEMES[0]) {
     setSettings((s) => ({ ...s, primaryColor: theme.primary, accentColor: theme.accent, bgColor: theme.bg }));
   }
+
+  // Optional posed/light preview-model upload (reused in Auto + Manual forms).
+  const previewField = (
+    <div className="flex flex-col gap-1">
+      <label className="text-sm text-gray-600 font-medium">
+        🎞️ 3D preview-fil <span className="text-gray-400 font-normal">(valgfri — poseret/let .3mf fra samme projekt, kun til visningen)</span>
+      </label>
+      <div className="flex items-center gap-3 flex-wrap">
+        <label className={`flex items-center gap-2 px-4 py-2 rounded-xl border cursor-pointer text-sm font-medium transition-colors ${previewUploading ? "border-purple-300 bg-purple-50 text-purple-400" : "border-gray-200 hover:border-purple-400 hover:bg-purple-50 text-gray-600"}`}>
+          {previewUploading ? "Uploader…" : form.previewModel ? "Skift preview-fil" : "Upload preview-fil"}
+          <input ref={previewFileRef} type="file" accept=".3mf,.stl" className="hidden" onChange={handlePreviewUpload} disabled={previewUploading} />
+        </label>
+        {form.previewModel && (
+          <>
+            <span className="text-xs text-green-600">✓ poseret preview aktiv</span>
+            <button type="button" onClick={() => setForm((f) => ({ ...f, previewModel: "" }))} className="text-xs text-red-400 hover:text-red-600">Fjern</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 
   if (!loggedIn) {
     return (
@@ -452,6 +491,7 @@ export default function AdminPage() {
                       </select>
                     </div>
                   </div>
+                  {previewField}
                   <div className="flex gap-3 items-center">
                     <button type="submit" disabled={saving} className="bg-purple-600 text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-purple-700 transition-colors disabled:opacity-60">
                       {saving ? "Gemmer…" : "Gem produkt"}
@@ -589,6 +629,9 @@ export default function AdminPage() {
                   })()}
                 </div>
               </div>
+
+              {/* Optional posed/light preview model for the shop's 3D view */}
+              {form.modelFile && <div className="sm:col-span-2">{previewField}</div>}
 
               {/* Color zone → slot mapping (only for saved products with an uploaded model) */}
               {editingId && form.modelFile && products.find((p) => p.id === editingId)?.modelFile && (
