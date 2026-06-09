@@ -305,7 +305,8 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
         parseFloat(attr(v, "y") ?? "0"),
         parseFloat(attr(v, "z") ?? "0")
       );
-      positions.push(x, y, z);
+      // Round to µm — plenty for display, and shrinks the cached/transferred JSON.
+      positions.push(Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000, Math.round(z * 1000) / 1000);
     }
 
     const tris = meshXml.match(/<triangle\b[^>]*\/?>/g) ?? [];

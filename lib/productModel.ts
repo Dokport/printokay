@@ -1,37 +1,43 @@
 /**
- * Derive a product's colour setup (slots + zone mapping) automatically from its
- * uploaded .3mf: one colorSlot per paint_color zone, each zone keeping the
- * model's intended colour for default-filament matching in the shop.
- *
- * Server-side only (reads the model from storage + unzips it).
+ * Server-side model analysis: parse a product's .3mf once and produce both the
+ * colour setup (slots + zone mapping) and the display mesh — so the route can
+ * pre-warm the mesh cache (light "Show plate" geometry) at save time, instead of
+ * letting the first customer view pay the multi-MB parse.
  */
 import { readBinaryFile } from "@/lib/storage";
-import { parseThreeMf } from "@/lib/threemf";
+import { parseThreeMf, type ParsedMesh } from "@/lib/threemf";
 import type { ColorSlot, ColorZone } from "@/lib/products";
 
-export async function deriveColorSetup(
-  modelFile: string
-): Promise<{ colorSlots: ColorSlot[]; colorZones: ColorZone[] } | null> {
-  const raw = await readBinaryFile(modelFile);
+export type ModelAnalysis = {
+  mesh: ParsedMesh;
+  colorSlots: ColorSlot[];
+  colorZones: ColorZone[];
+};
+
+export async function analyzeModel(file: string): Promise<ModelAnalysis | null> {
+  const raw = await readBinaryFile(file);
   if (!raw) return null;
 
-  let zones;
+  let mesh: ParsedMesh;
   try {
-    ({ zones } = parseThreeMf(new Uint8Array(raw)));
+    mesh = parseThreeMf(new Uint8Array(raw));
   } catch {
     return null;
   }
-  if (!zones.length) return null;
+  if (!mesh.zones.length) return null;
 
-  const colorSlots: ColorSlot[] = zones.map((_, i) => ({
-    id: `slot-${i + 1}`,
-    label: `Farve ${i + 1}`,
-  }));
-  const colorZones: ColorZone[] = zones.map((z, i) => ({
-    key: z.key,
-    slotId: `slot-${i + 1}`,
-    color: z.color,
-  }));
+  const colorSlots: ColorSlot[] = mesh.zones.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
+  const colorZones: ColorZone[] = mesh.zones.map((z, i) => ({ key: z.key, slotId: `slot-${i + 1}`, color: z.color }));
 
-  return { colorSlots, colorZones };
+  return { mesh, colorSlots, colorZones };
+}
+
+export function meshCacheKey(file: string): string {
+  return file.replace(/\.[^.]+$/, "") + ".mesh.json";
+}
+
+/** Back-compat: colour setup only. */
+export async function deriveColorSetup(file: string) {
+  const a = await analyzeModel(file);
+  return a ? { colorSlots: a.colorSlots, colorZones: a.colorZones } : null;
 }

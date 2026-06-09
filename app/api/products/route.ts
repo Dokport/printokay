@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Product } from "@/lib/products";
 import { isAdmin } from "@/lib/isAdmin";
 import { readJsonFile, writeJsonFile } from "@/lib/storage";
-import { deriveColorSetup } from "@/lib/productModel";
+import { analyzeModel, meshCacheKey } from "@/lib/productModel";
 
 async function readProducts(): Promise<Product[]> {
   return readJsonFile<Product[]>("products.json", []);
@@ -45,13 +45,15 @@ export async function POST(req: NextRequest) {
     ...(Array.isArray(body.colorZones) ? { colorZones: body.colorZones } : {}),
   };
 
-  // Auto-create colour zones/slots from the display model when none were supplied.
+  // Parse the display model once: pre-warm the light mesh cache (so the first
+  // customer view is instant) and auto-create colour zones if none were supplied.
   const displayFile = newProduct.previewModel || newProduct.modelFile;
-  if (displayFile && (newProduct.colorSlots.length === 0 || !newProduct.colorZones)) {
-    const derived = await deriveColorSetup(displayFile);
-    if (derived) {
-      if (newProduct.colorSlots.length === 0) newProduct.colorSlots = derived.colorSlots;
-      if (!newProduct.colorZones) newProduct.colorZones = derived.colorZones;
+  if (displayFile) {
+    const a = await analyzeModel(displayFile);
+    if (a) {
+      writeJsonFile(meshCacheKey(displayFile), a.mesh).catch(() => {});
+      if (newProduct.colorSlots.length === 0) newProduct.colorSlots = a.colorSlots;
+      if (!newProduct.colorZones) newProduct.colorZones = a.colorZones;
     }
   }
 
