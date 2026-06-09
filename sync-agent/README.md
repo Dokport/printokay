@@ -44,7 +44,8 @@ sekund og er idempotent.
   (begge `null` indtil Bambuddy har sliced filen). Pris findes ikke på filen og beregnes som
   `gram × cost_per_kg` fra den synkroniserede filament.
 
-> Kræver en API-nøgle **med library- og inventory-tilladelse**.
+> Auth: Bambuddy bruger **`Authorization: Bearer <api-key>`** (HTTPBearer). Endpoints kræver
+> blot en gyldig API-nøgle — inventory/library er ikke gated bag de tre printer-tilladelser.
 
 ## Lokal test
 

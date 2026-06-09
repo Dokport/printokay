@@ -2,7 +2,7 @@
  * printokay sync-agent — runs inside the home network (next to Bambuddy).
  *
  * All connections are OUTBOUND (the home server never accepts inbound traffic):
- *   - Bambuddy  : reached over the local Docker network, authed with X-API-Key
+ *   - Bambuddy  : reached over the local Docker network, authed with Bearer token
  *   - Webshop   : reached over public HTTPS, authed with x-sync-token
  *
  * Two flows per loop:
@@ -44,7 +44,8 @@ function required(name) {
   return v;
 }
 
-const bamHeaders = { "X-API-Key": cfg.bambuddyKey };
+// Bambuddy uses HTTP Bearer auth (Authorization: Bearer <key>).
+const bamHeaders = { Authorization: `Bearer ${cfg.bambuddyKey}` };
 const shopHeaders = { "x-sync-token": cfg.syncToken };
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
