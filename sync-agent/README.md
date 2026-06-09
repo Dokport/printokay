@@ -13,20 +13,23 @@ sekund og er idempotent.
 ## Deploy i Portainer (git-stack)
 
 1. Portainer → **Stacks → Add stack → Git repository**.
-2. Repository URL: dette repo. Compose path: `sync-agent/docker-compose.yml`.
+2. Repository URL: dette repo. Reference: `refs/heads/bambuddy-sync` (eller `main` efter merge).
+   Compose path: `sync-agent/docker-compose.yml`.
 3. Udfyld **Environment variables** (se nedenfor).
 4. Deploy. Portainer bygger imaget på hosten og starter containeren.
+
+> Enkleste netværksopsætning: sæt `BAMBUDDY_URL=http://192.168.1.155:8109` (host-IP). Så
+> behøver containeren ikke dele Docker-netværk med Bambuddy.
 
 ## Miljøvariabler
 
 | Variabel | Påkrævet | Beskrivelse |
 |---|---|---|
-| `BAMBUDDY_URL` | ja | fx `http://bambuddy:8000` (containernavn på det delte netværk) |
-| `BAMBUDDY_API_KEY` | ja | API-nøgle fra Bambuddy **med library/file-tilladelse** |
+| `BAMBUDDY_URL` | ja | host-adresse, fx `http://192.168.1.155:8109` |
+| `BAMBUDDY_API_KEY` | ja | Bambuddy API-nøgle (Bearer) |
 | `SHOP_URL` | ja | `https://www.printokay.dk` (eller preview-URL ved test) |
 | `SHOP_SYNC_TOKEN` | ja | samme værdi som `SYNC_TOKEN` i Vercel |
 | `SYNC_INTERVAL` | nej | sekunder mellem kørsler (default 600) |
-| `BAMBUDDY_NETWORK` | ja | navnet på Bambuddys Docker-netværk (Portainer → Networks) |
 | `BAMBUDDY_SPOOLS_PATH` | nej | default `/api/v1/inventory/spools` |
 | `BAMBUDDY_UPLOAD_PATH` | nej | default `/api/v1/library/files` (POST, multipart) |
 | `BAMBUDDY_FILES_PATH` | nej | default `/api/v1/library/files` (detalje: `/{id}`) |

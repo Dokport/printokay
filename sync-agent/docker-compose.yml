@@ -4,9 +4,11 @@
 #   Repo + compose path: sync-agent/docker-compose.yml
 # Set the environment variables below in Portainer's stack UI (not in git).
 #
-# The agent must share Bambuddy's Docker network so it can reach Bambuddy by
-# container name. Set BAMBUDDY_NETWORK to that network's name (Portainer →
-# Networks) and BAMBUDDY_URL to http://<bambuddy-container-name>:<port>.
+# Simplest setup: point BAMBUDDY_URL at the host's LAN address+port
+#   (e.g. http://192.168.1.155:8109). The container reaches Bambuddy via the
+#   host — no shared Docker network needed.
+# Cleaner alternative: join Bambuddy's Docker network and use the container name
+#   (http://<bambuddy-container>:<internal-port>). See the commented block below.
 
 services:
   sync-agent:
@@ -24,10 +26,14 @@ services:
       BAMBUDDY_FILES_PATH: ${BAMBUDDY_FILES_PATH:-/api/v1/library/files}
       BAMBUDDY_UPLOAD_FIELD: ${BAMBUDDY_UPLOAD_FIELD:-file}
       FALLBACK_COST_PER_KG_ORE: ${FALLBACK_COST_PER_KG_ORE:-0}
-    networks:
-      - bambuddy
 
-networks:
-  bambuddy:
-    external: true
-    name: ${BAMBUDDY_NETWORK}
+# ── Optional: shared-network setup instead of host IP ────────────────────────
+# Uncomment this and the `networks:` block, set BAMBUDDY_NETWORK, and use
+# BAMBUDDY_URL=http://<bambuddy-container>:<internal-port>.
+#    networks:
+#      - bambuddy
+#
+# networks:
+#   bambuddy:
+#     external: true
+#     name: ${BAMBUDDY_NETWORK}
