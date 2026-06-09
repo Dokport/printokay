@@ -122,34 +122,138 @@ export function parseThreeMfMeta(buffer: Uint8Array): ProjectMeta {
   return meta;
 }
 
+// ── 3MF transforms (row-vector convention; 12 values → 4×4 row-major) ─────────
+type Mat = number[]; // length 16, row-major
+const IDENTITY: Mat = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+
+function parseTransform(s?: string | null): Mat {
+  if (!s) return IDENTITY.slice();
+  const v = s.trim().split(/\s+/).map(Number);
+  if (v.length < 12 || v.some((n) => Number.isNaN(n))) return IDENTITY.slice();
+  return [v[0], v[1], v[2], 0, v[3], v[4], v[5], 0, v[6], v[7], v[8], 0, v[9], v[10], v[11], 1];
+}
+
+function mat4Mul(a: Mat, b: Mat): Mat {
+  const r = new Array(16).fill(0);
+  for (let i = 0; i < 4; i++)
+    for (let j = 0; j < 4; j++) {
+      let s = 0;
+      for (let k = 0; k < 4; k++) s += a[i * 4 + k] * b[k * 4 + j];
+      r[i * 4 + j] = s;
+    }
+  return r;
+}
+
+// Row-vector transform: p' = [x y z 1] · M
+function applyMat(m: Mat, x: number, y: number, z: number): [number, number, number] {
+  return [
+    x * m[0] + y * m[4] + z * m[8] + m[12],
+    x * m[1] + y * m[5] + z * m[9] + m[13],
+    x * m[2] + y * m[6] + z * m[10] + m[14],
+  ];
+}
+
+/**
+ * Resolve the build graph (3dmodel.model `<build><item>` → resource objects →
+ * `<component>` paths to Objects/*.model) into a flat list of meshes, each with
+ * its composed world transform. This places multi-object models correctly
+ * (matching the build plate / posed layout) instead of stacking them at origin.
+ */
+function collectPlacements(files: Record<string, Uint8Array>): { meshXml: string; matrix: Mat }[] {
+  const out: { meshXml: string; matrix: Mat }[] = [];
+  const rootName = Object.keys(files).find((n) => /3D\/3dmodel\.model$/i.test(n));
+  if (!rootName) return out;
+  const rootXml = strFromU8(files[rootName]);
+
+  // Resource objects: id → { components, innerXml }
+  const resObjects = new Map<string, { components: { objectid: string; path: string; transform: string }[]; innerXml: string }>();
+  const resBlock = rootXml.match(/<resources\b[^>]*>([\s\S]*?)<\/resources>/i)?.[1] ?? "";
+  const objRe = /<object\b([^>]*)>([\s\S]*?)<\/object>/gi;
+  let om: RegExpExecArray | null;
+  while ((om = objRe.exec(resBlock))) {
+    const id = om[1].match(/\bid="([^"]+)"/)?.[1];
+    if (!id) continue;
+    const inner = om[2];
+    const components: { objectid: string; path: string; transform: string }[] = [];
+    const compRe = /<component\b[^>]*\/?>/gi;
+    let cm: RegExpExecArray | null;
+    while ((cm = compRe.exec(inner))) {
+      const tag = cm[0];
+      components.push({
+        objectid: attr(tag, "objectid") ?? "",
+        path: tag.match(/\bp:path="([^"]+)"/)?.[1] ?? attr(tag, "path") ?? "",
+        transform: attr(tag, "transform") ?? "",
+      });
+    }
+    resObjects.set(id, { components, innerXml: inner });
+  }
+
+  const xmlCache = new Map<string, string | null>();
+  const loadPathXml = (path: string): string | null => {
+    const key = path.replace(/^\//, "");
+    if (xmlCache.has(key)) return xmlCache.get(key)!;
+    const fileKey = Object.keys(files).find((n) => n.toLowerCase() === key.toLowerCase());
+    const xml = fileKey ? strFromU8(files[fileKey]) : null;
+    xmlCache.set(key, xml);
+    return xml;
+  };
+
+  const resolve = (objectid: string, acc: Mat) => {
+    const def = resObjects.get(objectid);
+    if (!def) return;
+    if (def.components.length) {
+      for (const c of def.components) {
+        const combined = mat4Mul(parseTransform(c.transform), acc);
+        const xml = c.path ? loadPathXml(c.path) : null;
+        if (xml && xml.includes("<vertex")) out.push({ meshXml: xml, matrix: combined });
+      }
+    } else if (def.innerXml.includes("<vertex")) {
+      out.push({ meshXml: def.innerXml, matrix: acc });
+    }
+  };
+
+  const buildBlock = rootXml.match(/<build\b[^>]*>([\s\S]*?)<\/build>/i)?.[1] ?? "";
+  const itemRe = /<item\b[^>]*\/?>/gi;
+  let im: RegExpExecArray | null;
+  while ((im = itemRe.exec(buildBlock))) {
+    resolve(attr(im[0], "objectid") ?? "", parseTransform(attr(im[0], "transform")));
+  }
+  return out;
+}
+
 export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
   const files = unzipSync(buffer);
 
-  // Model XML lives under 3D/…/*.model. Parse every one that carries geometry.
-  const modelNames = Object.keys(files)
-    .filter((n) => /3D\/.*\.model$/i.test(n))
-    .sort(); // 3dmodel.model before Objects/*, deterministic order
+  // Resolve the build graph (with transforms). Fall back to every Objects mesh
+  // untransformed for atypical files that don't resolve.
+  let placements = collectPlacements(files);
+  if (!placements.length) {
+    for (const name of Object.keys(files)) {
+      if (!/3D\/.*\.model$/i.test(name)) continue;
+      const xml = strFromU8(files[name]);
+      if (xml.includes("<vertex")) placements.push({ meshXml: xml, matrix: IDENTITY.slice() });
+    }
+  }
 
   const positions: number[] = [];
   const zoneMap = new Map<string, number[]>();
 
-  for (const name of modelNames) {
-    const xml = strFromU8(files[name]);
-    if (!xml.includes("<vertex")) continue;
-
-    // Vertices for THIS file start at this offset in the combined buffer.
+  for (const { meshXml, matrix } of placements) {
+    // Vertices for THIS mesh start at this offset in the combined buffer.
     const baseIndex = positions.length / 3;
 
-    const vtx = xml.match(/<vertex\b[^>]*\/?>/g) ?? [];
+    const vtx = meshXml.match(/<vertex\b[^>]*\/?>/g) ?? [];
     for (const v of vtx) {
-      positions.push(
+      const [x, y, z] = applyMat(
+        matrix,
         parseFloat(attr(v, "x") ?? "0"),
         parseFloat(attr(v, "y") ?? "0"),
         parseFloat(attr(v, "z") ?? "0")
       );
+      positions.push(x, y, z);
     }
 
-    const tris = xml.match(/<triangle\b[^>]*\/?>/g) ?? [];
+    const tris = meshXml.match(/<triangle\b[^>]*\/?>/g) ?? [];
     for (const t of tris) {
       const v1 = parseInt(attr(t, "v1") ?? "", 10);
       const v2 = parseInt(attr(t, "v2") ?? "", 10);
