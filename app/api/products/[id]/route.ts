@@ -62,8 +62,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     filamentGrams: body.filamentGrams ? Number(body.filamentGrams) : prev.filamentGrams,
     materialCost: body.materialCost ? Math.round(parseFloat(body.materialCost) * 100) : prev.materialCost,
     modelFile: newModelFile,
+    // A new model file invalidates the Bambuddy sync state AND the derived
+    // production stats, so they get re-derived from the new file (and don't
+    // linger as stale numbers from the previous model).
     ...(modelChanged
-      ? { modelSyncedAt: undefined, bambuddyId: undefined, bambuddyStatsAt: undefined }
+      ? {
+          modelSyncedAt: undefined,
+          bambuddyId: undefined,
+          bambuddyStatsAt: undefined,
+          printMinutes: undefined,
+          filamentGrams: undefined,
+          materialCost: undefined,
+        }
       : {}),
   };
 
