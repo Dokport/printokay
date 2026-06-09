@@ -21,6 +21,36 @@ const Product3DPreview = dynamic(() => import("./Product3DPreview"), {
 const hasRealImage = (img: string) =>
   img && img !== "/products/placeholder.jpg" && !img.endsWith("placeholder.jpg");
 
+function hexToRgb(h: string): [number, number, number] {
+  const s = h.replace("#", "");
+  return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+}
+
+// Nearest in-stock filament to a target hex (squared RGB distance).
+function nearestFilamentId(hex: string | undefined, fils: FilamentSpool[]): string | undefined {
+  if (!hex || !fils.length) return undefined;
+  const t = hexToRgb(hex);
+  let best: FilamentSpool | null = null, bd = Infinity;
+  for (const f of fils) {
+    const c = hexToRgb(f.colorHex);
+    const d = (c[0] - t[0]) ** 2 + (c[1] - t[1]) ** 2 + (c[2] - t[2]) ** 2;
+    if (d < bd) { bd = d; best = f; }
+  }
+  return best?.id;
+}
+
+// Default filament per slot = nearest in-stock filament to the model's zone colour.
+function computeDefaultChoices(product: Product, filaments: FilamentSpool[]): Record<string, string> {
+  const avail = filaments.filter((f) => f.inStock && (!product.material || f.material === product.material));
+  const out: Record<string, string> = {};
+  for (const z of product.colorZones ?? []) {
+    if (out[z.slotId]) continue;
+    const fid = nearestFilamentId(z.color, avail);
+    if (fid) out[z.slotId] = fid;
+  }
+  return out;
+}
+
 type Props = {
   product: Product;
   primaryColor: string;
@@ -38,9 +68,13 @@ export default function ProductCard({
   const [added, setAdded] = useState(false);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const [imgIndex, setImgIndex] = useState(0);
+  const [topView, setTopView] = useState<"3d" | "foto">("3d");
 
-  // Per-slot selection: slotId -> filamentId
-  const [slotChoices, setSlotChoices] = useState<Record<string, string>>({});
+  // Per-slot selection: slotId -> filamentId. Pre-filled with the model's own
+  // colours (nearest in-stock filament) so a sensible default is shown up front.
+  const [slotChoices, setSlotChoices] = useState<Record<string, string>>(
+    () => computeDefaultChoices(product, filaments)
+  );
 
   const allImages = (product.images && product.images.length > 0
     ? product.images
@@ -98,12 +132,14 @@ export default function ProductCard({
   const cardBg = `color-mix(in srgb, ${bgColor} 60%, white)`;
   const missingSlots = customizable ? slots.filter((s) => !slotChoices[s.id]) : [];
   const blocked = missingSlots.length > 0;
+  const canShow3D = isActive && customizable && has3D;
+  const show3D = canShow3D && topView === "3d";
 
   return (
     <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow flex flex-col">
       {/* ── Top: 3D preview (active + has model) OR image ── */}
       <div className="relative h-52 flex items-center justify-center overflow-hidden rounded-t-2xl" style={{ background: cardBg }}>
-        {isActive && customizable && has3D ? (
+        {show3D ? (
           <Product3DPreview
             productId={product.id}
             zoneColors={zoneColors}
@@ -150,8 +186,25 @@ export default function ProductCard({
             {product.material}
           </span>
         )}
-        {isActive && customizable && has3D && (
+        {show3D && (
           <span className="absolute bottom-2 right-3 text-[10px] text-gray-400 z-10">træk for at rotere</span>
+        )}
+        {/* 3D ⇄ Foto toggle (only when active model + real images exist) */}
+        {canShow3D && hasImages && (
+          <div className="absolute bottom-2 left-2 z-10 flex rounded-full bg-white/85 shadow-sm overflow-hidden text-[11px] font-medium">
+            <button
+              type="button"
+              onClick={() => setTopView("3d")}
+              className="px-2.5 py-1 transition-colors"
+              style={topView === "3d" ? { backgroundColor: primaryColor, color: "#fff" } : { color: "#6b7280" }}
+            >3D</button>
+            <button
+              type="button"
+              onClick={() => setTopView("foto")}
+              className="px-2.5 py-1 transition-colors"
+              style={topView === "foto" ? { backgroundColor: primaryColor, color: "#fff" } : { color: "#6b7280" }}
+            >Foto</button>
+          </div>
         )}
       </div>
 

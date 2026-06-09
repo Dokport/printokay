@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Product } from "@/lib/products";
 import { isAdmin } from "@/lib/isAdmin";
 import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import { deriveColorSetup } from "@/lib/productModel";
 
 async function readProducts(): Promise<Product[]> {
   return readJsonFile<Product[]>("products.json", []);
@@ -79,6 +80,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         }
       : {}),
   };
+
+  // Auto-create colour zones/slots from the model when missing (e.g. right after
+  // a new model upload), so the admin gets one slot per zone with the model's
+  // colours — no manual setup needed.
+  const p = products[idx];
+  if (p.modelFile && (modelChanged || !p.colorZones || (p.colorSlots?.length ?? 0) === 0)) {
+    const derived = await deriveColorSetup(p.modelFile);
+    if (derived) {
+      if (modelChanged || (p.colorSlots?.length ?? 0) === 0) p.colorSlots = derived.colorSlots;
+      if (modelChanged || !p.colorZones) p.colorZones = derived.colorZones;
+    }
+  }
 
   await writeProducts(products);
   return NextResponse.json(products[idx]);

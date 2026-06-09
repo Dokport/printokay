@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Product } from "@/lib/products";
 import { isAdmin } from "@/lib/isAdmin";
 import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import { deriveColorSetup } from "@/lib/productModel";
 
 async function readProducts(): Promise<Product[]> {
   return readJsonFile<Product[]>("products.json", []);
@@ -42,6 +43,15 @@ export async function POST(req: NextRequest) {
     ...(body.modelFile ? { modelFile: body.modelFile } : {}),
     ...(Array.isArray(body.colorZones) ? { colorZones: body.colorZones } : {}),
   };
+
+  // Auto-create colour zones/slots from the model when none were supplied.
+  if (newProduct.modelFile && (newProduct.colorSlots.length === 0 || !newProduct.colorZones)) {
+    const derived = await deriveColorSetup(newProduct.modelFile);
+    if (derived) {
+      if (newProduct.colorSlots.length === 0) newProduct.colorSlots = derived.colorSlots;
+      if (!newProduct.colorZones) newProduct.colorZones = derived.colorZones;
+    }
+  }
 
   products.push(newProduct);
   await writeProducts(products);
