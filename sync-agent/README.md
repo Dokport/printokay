@@ -25,11 +25,14 @@ sekund og er idempotent.
 
 | Variabel | Påkrævet | Beskrivelse |
 |---|---|---|
-| `BAMBUDDY_URL` | ja | host-adresse, fx `http://192.168.1.155:8109` |
+| `BAMBUDDY_URL` | nej | default `http://127.0.0.1:8109` (sidecar + Bambuddy i host-mode) |
 | `BAMBUDDY_API_KEY` | ja | Bambuddy API-nøgle (Bearer) |
 | `SHOP_URL` | ja | `https://www.printokay.dk` (eller preview-URL ved test) |
 | `SHOP_SYNC_TOKEN` | ja | samme værdi som `SYNC_TOKEN` i Vercel |
 | `SYNC_INTERVAL` | nej | sekunder mellem kørsler (default 600) |
+
+> Bambuddy kører i `network_mode: host`, så sidecaren gør det samme og når Bambuddy på
+> `127.0.0.1:8109`. Containeren laver kun udgående forbindelser — host-mode er sikkert.
 | `BAMBUDDY_SPOOLS_PATH` | nej | default `/api/v1/inventory/spools` |
 | `BAMBUDDY_UPLOAD_PATH` | nej | default `/api/v1/library/files` (POST, multipart) |
 | `BAMBUDDY_FILES_PATH` | nej | default `/api/v1/library/files` (detalje: `/{id}`) |

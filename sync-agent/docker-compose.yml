@@ -1,21 +1,20 @@
-# Portainer stack for the printokay sync-agent (Synology NAS, same Docker as Bambuddy).
+# Portainer stack for the printokay sync-agent (Synology NAS).
 #
 # Deploy: Portainer → Stacks → Add stack → Git repository
 #   Repo + compose path: sync-agent/docker-compose.yml
 # Set the environment variables below in Portainer's stack UI (not in git).
 #
-# The agent joins Bambuddy's existing Docker network and reaches it by container
-# name — most reliable on Synology. You need three values (find them in Portainer):
-#   - BAMBUDDY_NETWORK : Bambuddy container → Network name
-#   - BAMBUDDY_URL     : http://<bambuddy-container-name>:<INTERNAL port>
-#                        (internal port is the right-hand side of e.g. 8109:8000 → 8000)
+# Bambuddy runs in `network_mode: host`, so we run the sidecar in host mode too
+# and reach Bambuddy at 127.0.0.1 on its port (default 8109). The sidecar only
+# makes outbound connections, so host mode is safe. No ports are published.
 
 services:
   sync-agent:
     build: .
     restart: unless-stopped
+    network_mode: host
     environment:
-      BAMBUDDY_URL: ${BAMBUDDY_URL}
+      BAMBUDDY_URL: ${BAMBUDDY_URL:-http://127.0.0.1:8109}
       BAMBUDDY_API_KEY: ${BAMBUDDY_API_KEY}
       SHOP_URL: ${SHOP_URL}
       SHOP_SYNC_TOKEN: ${SHOP_SYNC_TOKEN}
@@ -26,11 +25,3 @@ services:
       BAMBUDDY_FILES_PATH: ${BAMBUDDY_FILES_PATH:-/api/v1/library/files}
       BAMBUDDY_UPLOAD_FIELD: ${BAMBUDDY_UPLOAD_FIELD:-file}
       FALLBACK_COST_PER_KG_ORE: ${FALLBACK_COST_PER_KG_ORE:-0}
-    networks:
-      - bambuddy
-
-# Bambuddy's existing network, joined by name (set BAMBUDDY_NETWORK in Portainer).
-networks:
-  bambuddy:
-    external: true
-    name: ${BAMBUDDY_NETWORK}
