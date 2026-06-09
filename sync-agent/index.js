@@ -51,9 +51,10 @@ const shopHeaders = { "x-sync-token": cfg.syncToken };
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const err = (...a) => console.error(new Date().toISOString(), ...a);
 
-// Remember cost/kg per material from the last filament pull, to compute model
-// material cost if Bambuddy's file API doesn't return a price directly.
+// Remembered from the last filament pull, to compute model material cost
+// (Bambuddy's file API doesn't return a price directly).
 let costPerKgByMaterial = {};
+let syncedSpools = []; // [{ material, colorHex, costPerKg }] with a known cost
 
 async function bam(path, init) {
   const r = await fetch(cfg.bambuddyUrl + path, {
@@ -80,7 +81,10 @@ async function syncFilaments() {
 
   const spools = list.map(mapSpool).filter((s) => s.sourceId);
 
-  // Cache cost/kg for the model-stats fallback.
+  // Cache spool costs for model material-cost computation:
+  //  - full list (match by material + colour for precision)
+  //  - per-material map + overall average (fallbacks)
+  syncedSpools = spools.filter((s) => s.costPerKg);
   costPerKgByMaterial = {};
   for (const s of spools) {
     if (s.costPerKg && s.material) costPerKgByMaterial[s.material] = s.costPerKg;
@@ -170,12 +174,30 @@ async function fetchStats(m) {
   // Bambuddy file detail: print_time_seconds + filament_used_grams (null until sliced).
   const sec = num(file.print_time_seconds);
   const printMinutes = sec != null ? Math.round(sec / 60) : null;
-  const filamentGrams = num(file.filament_used_grams);
+  let filamentGrams = num(file.filament_used_grams);
 
-  // No cost field on the file → compute from grams × cost/kg (synced from spools).
+  // Material cost: prefer the per-filament breakdown (accurate for multi-colour),
+  // matching each filament to a spool by material + colour. Falls back to total
+  // grams × material/avg rate if the breakdown isn't available.
   let materialCost = null;
-  if (filamentGrams != null) {
-    const rate = pickCostPerKg(file);
+  let reqs = null;
+  try {
+    reqs = await bam(`${cfg.filesPath}/${m.bambuddyId}/filament-requirements`).then((r) => r.json());
+  } catch { /* endpoint optional */ }
+
+  const filaments = reqs?.filaments;
+  if (Array.isArray(filaments) && filaments.length) {
+    let cost = 0;
+    let grams = 0;
+    for (const f of filaments) {
+      const g = num(f.used_grams) ?? 0;
+      grams += g;
+      cost += (g / 1000) * rateForFilament(f.type, f.color);
+    }
+    materialCost = Math.round(cost);
+    if (filamentGrams == null) filamentGrams = Math.round(grams * 100) / 100;
+  } else if (filamentGrams != null) {
+    const rate = rateForFilament(file.filament_type, file.filament_color);
     if (rate) materialCost = Math.round((filamentGrams / 1000) * rate);
   }
 
@@ -193,9 +215,15 @@ async function fetchStats(m) {
   log(`model: stats skrevet for ${m.id} (tid=${printMinutes}min, gram=${filamentGrams}, pris=${materialCost}øre)`);
 }
 
-function pickCostPerKg(file) {
-  const mat = file.material || file.filament_type;
-  if (mat && costPerKgByMaterial[mat]) return costPerKgByMaterial[mat];
+// Cost/kg (øre) for a given filament type+colour, most specific match first:
+// material+colour → material → overall average → configured fallback.
+function rateForFilament(type, color) {
+  const hex = color ? normHex(color) : null;
+  if (type && hex) {
+    const exact = syncedSpools.find((s) => s.material === type && s.colorHex.toUpperCase() === hex.toUpperCase());
+    if (exact) return exact.costPerKg;
+  }
+  if (type && costPerKgByMaterial[type]) return costPerKgByMaterial[type];
   const vals = Object.values(costPerKgByMaterial);
   if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
   return cfg.fallbackCostPerKg || 0;

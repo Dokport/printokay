@@ -47,8 +47,10 @@ sekund og er idempotent.
 - **Model-upload:** `POST /api/v1/library/files` (multipart, felt `file`) → returnerer `id`
   (gemmes som `bambuddyId`).
 - **Fil-stats:** `GET /api/v1/library/files/{id}` → `print_time_seconds`, `filament_used_grams`
-  (begge `null` indtil Bambuddy har sliced filen). Pris findes ikke på filen og beregnes som
-  `gram × cost_per_kg` fra den synkroniserede filament.
+  (begge `null` indtil filen er sliced — kun sliced `.3mf` har slice-info).
+- **Pris (per-materiale):** `GET /api/v1/library/files/{id}/filament-requirements` →
+  per-slot `{type, color, used_grams}`. Hver matches mod en synket spole (materiale + farve)
+  og ganges med dens `cost_per_kg`. Fallback: materiale-rate → gennemsnit → `FALLBACK_COST_PER_KG_ORE`.
 
 > Auth: Bambuddy bruger **`Authorization: Bearer <api-key>`** (HTTPBearer). Endpoints kræver
 > blot en gyldig API-nøgle — inventory/library er ikke gated bag de tre printer-tilladelser.
