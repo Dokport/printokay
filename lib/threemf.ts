@@ -18,12 +18,47 @@
  */
 import { unzipSync, strFromU8 } from "fflate";
 
-export type MeshZone = { key: string; indices: number[] };
+export type MeshZone = { key: string; indices: number[]; color?: string };
 export type ParsedMesh = { positions: number[]; zones: MeshZone[] };
 
 function attr(tag: string, name: string): string | null {
   const m = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
   return m ? m[1] : null;
+}
+
+function normHex(c: string): string {
+  let h = c.trim().replace(/^#/, "");
+  if (h.length >= 6) return "#" + h.slice(0, 6).toUpperCase();
+  return "#888888";
+}
+
+/**
+ * The model's intended filament colours, in slot order. Bambu stores them in
+ * `project_settings.config` (`filament_colour`), or older sliced exports list
+ * them in `slice_info.config` (`<filament … color="…">`).
+ */
+function extractModelColors(files: Record<string, Uint8Array>): string[] {
+  // project_settings.config (JSON)
+  const ps = Object.keys(files).find((n) => /project_settings\.config$/i.test(n));
+  if (ps) {
+    try {
+      const cfg = JSON.parse(strFromU8(files[ps]));
+      const arr = cfg.filament_colour ?? cfg.filament_multi_colour;
+      if (Array.isArray(arr) && arr.length) return arr.map((c: string) => normHex(c));
+    } catch { /* fall through */ }
+  }
+  // slice_info.config (XML)
+  const si = Object.keys(files).find((n) => /slice_info\.config$/i.test(n));
+  if (si) {
+    const xml = strFromU8(files[si]);
+    const fils = xml.match(/<filament\b[^>]*\/?>/g) ?? [];
+    const colors = fils
+      .sort((a, b) => Number(attr(a, "id") ?? 0) - Number(attr(b, "id") ?? 0))
+      .map((f) => attr(f, "color"))
+      .filter(Boolean) as string[];
+    if (colors.length) return colors.map(normHex);
+  }
+  return [];
 }
 
 export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
@@ -66,10 +101,22 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
     }
   }
 
-  // Stable zone order: "default" first (base extruder), then by key.
-  const zones: MeshZone[] = [...zoneMap.entries()]
-    .sort((a, b) => (a[0] === "default" ? -1 : b[0] === "default" ? 1 : a[0].localeCompare(b[0])))
-    .map(([key, indices]) => ({ key, indices }));
+  // Stable zone order: "default" first (base extruder), then by numeric value.
+  const ordered = [...zoneMap.entries()].sort((a, b) => {
+    if (a[0] === "default") return -1;
+    if (b[0] === "default") return 1;
+    const na = parseInt(a[0], 16), nb = parseInt(b[0], 16);
+    if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
+    return a[0].localeCompare(b[0]);
+  });
+
+  // Pair each zone with the model's filament colour by order.
+  const modelColors = extractModelColors(files);
+  const zones: MeshZone[] = ordered.map(([key, indices], i) => ({
+    key,
+    indices,
+    color: modelColors[i],
+  }));
 
   return { positions, zones };
 }

@@ -7,6 +7,7 @@ export type ColorSlot = {
 export type ColorZone = {
   key: string;    // paint_color value, or "default" for the base extruder
   slotId: string; // → ColorSlot.id
+  color?: string; // the model's intended hex for this zone (for default colour mapping)
 };
 
 export type Product = {
