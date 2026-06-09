@@ -18,9 +18,9 @@ services:
       SHOP_URL: ${SHOP_URL}
       SHOP_SYNC_TOKEN: ${SHOP_SYNC_TOKEN}
       SYNC_INTERVAL: ${SYNC_INTERVAL:-600}
-      # Optional overrides if Bambuddy's /docs shows different paths/fields:
-      BAMBUDDY_SPOOLS_PATH: ${BAMBUDDY_SPOOLS_PATH:-/api/v1/spools}
-      BAMBUDDY_UPLOAD_PATH: ${BAMBUDDY_UPLOAD_PATH:-/api/v1/library/files/upload}
+      # Bambuddy paths — confirmed against the instance's openapi.json. Override only if upgraded.
+      BAMBUDDY_SPOOLS_PATH: ${BAMBUDDY_SPOOLS_PATH:-/api/v1/inventory/spools}
+      BAMBUDDY_UPLOAD_PATH: ${BAMBUDDY_UPLOAD_PATH:-/api/v1/library/files}
       BAMBUDDY_FILES_PATH: ${BAMBUDDY_FILES_PATH:-/api/v1/library/files}
       BAMBUDDY_UPLOAD_FIELD: ${BAMBUDDY_UPLOAD_FIELD:-file}
       FALLBACK_COST_PER_KG_ORE: ${FALLBACK_COST_PER_KG_ORE:-0}

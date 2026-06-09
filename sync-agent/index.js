@@ -24,9 +24,9 @@ const cfg = {
   syncToken: required("SHOP_SYNC_TOKEN"),
   intervalSec: Number(process.env.SYNC_INTERVAL || 600),
 
-  // Bambuddy paths (override if /docs shows different ones)
-  spoolsPath: process.env.BAMBUDDY_SPOOLS_PATH || "/api/v1/spools",
-  uploadPath: process.env.BAMBUDDY_UPLOAD_PATH || "/api/v1/library/files/upload",
+  // Bambuddy paths — confirmed against this instance's openapi.json.
+  spoolsPath: process.env.BAMBUDDY_SPOOLS_PATH || "/api/v1/inventory/spools",
+  uploadPath: process.env.BAMBUDDY_UPLOAD_PATH || "/api/v1/library/files",
   filesPath: process.env.BAMBUDDY_FILES_PATH || "/api/v1/library/files",
   uploadField: process.env.BAMBUDDY_UPLOAD_FIELD || "file",
 
@@ -94,21 +94,31 @@ async function syncFilaments() {
   log(`filament: ${spools.length} spoler sendt (synced=${res.synced}, manual=${res.manual})`);
 }
 
+// Maps Bambuddy /api/v1/inventory/spools rows → shop FilamentSpool shape.
 function mapSpool(s) {
-  const remainingGrams = num(s.remaining_weight ?? s.remainingWeight ?? s.remaining ?? s.remaining_grams);
-  const lowThreshold = num(s.low_stock_threshold ?? s.lowStockThreshold ?? 0);
-  const costPerKgOre = (() => {
-    const perKg = num(s.cost_per_kg ?? s.costPerKg ?? s.cost);
-    return perKg ? Math.round(perKg * 100) : undefined;
-  })();
+  // remaining filament = advertised net weight − consumed
+  const labelWeight = num(s.label_weight);
+  const used = num(s.weight_used) ?? 0;
+  const remainingGrams = labelWeight != null ? Math.max(0, labelWeight - used) : null;
+
+  const perKg = num(s.cost_per_kg);
+  const costPerKgOre = perKg != null ? Math.round(perKg * 100) : undefined;
+
+  const archived = !!s.archived_at;
+
   return {
-    sourceId: String(s.id ?? s.spool_id ?? s.uuid ?? ""),
-    name: s.name || [s.brand, s.subtype, s.color_name].filter(Boolean).join(" ") || "Filament",
-    material: s.material || s.filament_type || "PLA",
-    colorHex: normHex(s.color_hex ?? s.colorHex ?? s.color ?? "#888888"),
+    sourceId: String(s.id ?? ""),
+    name:
+      s.slicer_filament_name ||
+      [s.brand, s.subtype, s.color_name].filter(Boolean).join(" ") ||
+      s.material ||
+      "Filament",
+    material: s.material || "PLA",
+    colorHex: normHex(s.rgba),
     remainingGrams: remainingGrams ?? undefined,
     costPerKg: costPerKgOre,
-    inStock: remainingGrams != null ? remainingGrams > lowThreshold : true,
+    // No explicit stock flag in Bambuddy → in stock if not archived and filament remains.
+    inStock: !archived && (remainingGrams == null || remainingGrams > 0),
   };
 }
 
@@ -156,15 +166,14 @@ async function uploadModel(m) {
 async function fetchStats(m) {
   const file = await bam(`${cfg.filesPath}/${m.bambuddyId}`).then((r) => r.json());
 
-  const printMinutes = extractMinutes(file);
-  const filamentGrams = num(
-    file.filament_weight ?? file.filamentWeight ?? file.total_weight ?? file.weight
-  );
-  let materialCost = num(file.cost ?? file.price ?? file.material_cost); // already currency units?
-  // If Bambuddy returns a currency figure, convert to øre; else compute from grams × cost/kg.
-  if (materialCost != null) {
-    materialCost = Math.round(materialCost * 100);
-  } else if (filamentGrams != null) {
+  // Bambuddy file detail: print_time_seconds + filament_used_grams (null until sliced).
+  const sec = num(file.print_time_seconds);
+  const printMinutes = sec != null ? Math.round(sec / 60) : null;
+  const filamentGrams = num(file.filament_used_grams);
+
+  // No cost field on the file → compute from grams × cost/kg (synced from spools).
+  let materialCost = null;
+  if (filamentGrams != null) {
     const rate = pickCostPerKg(file);
     if (rate) materialCost = Math.round((filamentGrams / 1000) * rate);
   }
@@ -191,24 +200,25 @@ function pickCostPerKg(file) {
   return cfg.fallbackCostPerKg || 0;
 }
 
-function extractMinutes(file) {
-  const sec = num(file.print_time ?? file.printTime ?? file.estimated_time ?? file.duration);
-  if (sec != null) return Math.round(sec / 60); // assume seconds
-  const min = num(file.print_minutes ?? file.printMinutes);
-  return min != null ? Math.round(min) : null;
-}
-
 // ── helpers ─────────────────────────────────────────────────────────────────
 function num(v) {
   if (v == null || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
+// Bambuddy stores colour as `rgba`. Handle "RRGGBB", "RRGGBBAA", "#RRGGBB" and
+// "rgba(r,g,b,a)" forms → "#RRGGBB".
 function normHex(c) {
   if (!c) return "#888888";
   let h = String(c).trim();
-  if (!h.startsWith("#")) h = "#" + h;
-  return h.slice(0, 7);
+  const m = h.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (m) {
+    const hex = m.slice(1, 4).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
+    return "#" + hex;
+  }
+  h = h.replace(/^#/, "");
+  if (h.length >= 6) return "#" + h.slice(0, 6);
+  return "#888888";
 }
 function guessExt(res) {
   const cd = res.headers.get("content-disposition") || "";

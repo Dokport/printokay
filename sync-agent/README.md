@@ -27,21 +27,24 @@ sekund og er idempotent.
 | `SHOP_SYNC_TOKEN` | ja | samme værdi som `SYNC_TOKEN` i Vercel |
 | `SYNC_INTERVAL` | nej | sekunder mellem kørsler (default 600) |
 | `BAMBUDDY_NETWORK` | ja | navnet på Bambuddys Docker-netværk (Portainer → Networks) |
-| `BAMBUDDY_SPOOLS_PATH` | nej | override hvis `/docs` viser et andet spole-endpoint |
-| `BAMBUDDY_UPLOAD_PATH` | nej | default `/api/v1/library/files/upload` |
-| `BAMBUDDY_FILES_PATH` | nej | default `/api/v1/library/files` |
+| `BAMBUDDY_SPOOLS_PATH` | nej | default `/api/v1/inventory/spools` |
+| `BAMBUDDY_UPLOAD_PATH` | nej | default `/api/v1/library/files` (POST, multipart) |
+| `BAMBUDDY_FILES_PATH` | nej | default `/api/v1/library/files` (detalje: `/{id}`) |
 | `BAMBUDDY_UPLOAD_FIELD` | nej | multipart-feltnavn (default `file`) |
-| `FALLBACK_COST_PER_KG_ORE` | nej | kr/kg i øre brugt hvis hverken fil-API eller spole har en pris |
+| `FALLBACK_COST_PER_KG_ORE` | nej | kr/kg i øre brugt hvis ingen spole har en pris |
 
-## Bekræft mod Bambuddys Swagger (`http://<host>:8000/docs`)
+## Bekræftede Bambuddy-endpoints (fra instansens openapi.json)
 
-Koden bruger fornuftige defaults + flere sandsynlige feltnavne, men tjek og override hvis
-nødvendigt:
+- **Spoler:** `GET /api/v1/inventory/spools` → felter `id`, `material`, `brand`, `subtype`,
+  `color_name`, `rgba`, `label_weight`, `weight_used`, `cost_per_kg`, `archived_at`.
+  Restvægt = `label_weight − weight_used`; på lager = ikke arkiveret og restvægt > 0.
+- **Model-upload:** `POST /api/v1/library/files` (multipart, felt `file`) → returnerer `id`
+  (gemmes som `bambuddyId`).
+- **Fil-stats:** `GET /api/v1/library/files/{id}` → `print_time_seconds`, `filament_used_grams`
+  (begge `null` indtil Bambuddy har sliced filen). Pris findes ikke på filen og beregnes som
+  `gram × cost_per_kg` fra den synkroniserede filament.
 
-- **Spole-endpoint** (`BAMBUDDY_SPOOLS_PATH`) og feltnavne for restvægt / kr/kg / low-stock.
-- **Upload-feltnavn** for `POST /api/v1/library/files/upload`.
-- **Fil-stats**: hvilke felter `GET /api/v1/library/files/{id}` returnerer (printtid,
-  filamentvægt, evt. pris), og om pris er direkte tilgængelig eller skal beregnes fra kr/kg.
+> Kræver en API-nøgle **med library- og inventory-tilladelse**.
 
 ## Lokal test
 
