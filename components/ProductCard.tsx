@@ -6,7 +6,7 @@ import { Product, formatPrice } from "@/lib/products";
 import { FilamentSpool } from "@/lib/settings";
 import { ColorChoice } from "@/lib/cart";
 import { useCart } from "@/lib/cartContext";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 // three.js viewer is client-only and heavy — load on demand (only the active card mounts it).
 const Product3DPreview = dynamic(() => import("./Product3DPreview"), {
@@ -69,6 +69,7 @@ export default function ProductCard({
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const [imgIndex, setImgIndex] = useState(0);
   const [topView, setTopView] = useState<"3d" | "foto">("3d");
+  const prefetched = useRef(false);
 
   // Per-slot selection: slotId -> filamentId. Pre-filled with the model's own
   // colours (nearest in-stock filament) so a sensible default is shown up front.
@@ -135,8 +136,21 @@ export default function ProductCard({
   const canShow3D = isActive && customizable && has3D;
   const show3D = canShow3D && topView === "3d";
 
+  // Warm the 3D bundle + mesh on hover, so clicking "Vælg farver" feels instant.
+  function prefetch3D() {
+    if (prefetched.current || !customizable || !has3D) return;
+    prefetched.current = true;
+    import("./Product3DPreview").catch(() => {});
+    const ver = product.previewModel || product.modelFile;
+    fetch(`/api/products/${product.id}/mesh${ver ? `?v=${encodeURIComponent(ver)}` : ""}`).catch(() => {});
+  }
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow flex flex-col">
+    <div
+      className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-shadow flex flex-col"
+      onPointerEnter={prefetch3D}
+      onTouchStart={prefetch3D}
+    >
       {/* ── Top: 3D preview (active + has model) OR image ── */}
       <div className="relative h-52 flex items-center justify-center overflow-hidden rounded-t-2xl" style={{ background: cardBg }}>
         {show3D ? (
