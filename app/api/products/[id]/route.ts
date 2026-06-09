@@ -62,9 +62,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     filamentGrams: body.filamentGrams ? Number(body.filamentGrams) : prev.filamentGrams,
     materialCost: body.materialCost ? Math.round(parseFloat(body.materialCost) * 100) : prev.materialCost,
     modelFile: newModelFile,
-    // A new model file invalidates the Bambuddy sync state AND the derived
-    // production stats, so they get re-derived from the new file (and don't
-    // linger as stale numbers from the previous model).
+    // colorZones may be sent on save; a new model file invalidates them.
+    ...(Array.isArray(body.colorZones) ? { colorZones: body.colorZones } : {}),
+    // A new model file invalidates the Bambuddy sync state, the derived
+    // production stats AND the colour-zone mapping (zones can change), so they
+    // get re-derived/re-mapped from the new file.
     ...(modelChanged
       ? {
           modelSyncedAt: undefined,
@@ -73,6 +75,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           printMinutes: undefined,
           filamentGrams: undefined,
           materialCost: undefined,
+          colorZones: undefined,
         }
       : {}),
   };

@@ -3,6 +3,12 @@ export type ColorSlot = {
   label: string; // e.g. "Krop", "Øjne", "Base"
 };
 
+// Maps a 3MF paint_color zone (from the model) to a colorSlot the customer picks.
+export type ColorZone = {
+  key: string;    // paint_color value, or "default" for the base extruder
+  slotId: string; // → ColorSlot.id
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -23,6 +29,7 @@ export type Product = {
   modelSyncedAt?: string;   // ISO-tid: modellen er uploadet til Bambuddy
   bambuddyId?: string;      // Bambuddy library-fil-id
   bambuddyStatsAt?: string; // ISO-tid: tid/gram/pris er hentet retur fra Bambuddy
+  colorZones?: ColorZone[]; // mapping af modellens paint_color-zoner → colorSlots
 };
 
 export const MATERIALS = ["PLA", "PETG", "TPU", "ABS", "ASA", "Resin"];
