@@ -241,14 +241,19 @@ async function uploadModel(m) {
   const categoryName = (m.category || "Ukategoriseret").trim();
   const categoryFolder = await ensureFolder(categoryName, rootFolder.id);
 
-  // 2. A Project to group all of this product's prints (notes link back to shop).
-  const project = await createProject({
-    name: safe,
-    notes: `Shop-produkt: ${shopLink}\nKategori: ${categoryName}`,
-  });
+  // 2. Forsøg at oprette et Bambuddy-Project (kræver admin-tilladelse — valgfrit).
+  let project = null;
+  try {
+    project = await createProject({
+      name: safe,
+      notes: `Shop-produkt: ${shopLink}\nKategori: ${categoryName}`,
+    });
+  } catch (e) {
+    log(`model: project-oprettelse sprunget over (${e.message}) — bruger kun mappe`);
+  }
 
-  // 3. The product's own folder, linked to the project.
-  const productFolder = await ensureFolder(safe, categoryFolder.id, project.id);
+  // 3. Produktets egen mappe (linket til project hvis det lykkedes).
+  const productFolder = await ensureFolder(safe, categoryFolder.id, project?.id ?? null);
 
   // 4. Upload both files into the product folder.
   let projectFileId, printFileId;
@@ -264,12 +269,18 @@ async function uploadModel(m) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       productId: m.id,
-      bambuddy: { projectId: project.id, folderId: productFolder.id, projectFileId, printFileId },
+      bambuddy: {
+        ...(project?.id != null ? { projectId: project.id } : {}),
+        folderId: productFolder.id,
+        projectFileId,
+        printFileId,
+      },
     }),
   });
   log(
-    `model: "${m.name}" → Bambuddy project=${project.id}, folder=${productFolder.id}, ` +
-      `projekt=${projectFileId || "—"}, print=${printFileId || "—"}`
+    `model: "${m.name}" → Bambuddy folder=${productFolder.id}` +
+      (project?.id ? `, project=${project.id}` : "") +
+      `, projekt=${projectFileId || "—"}, print=${printFileId || "—"}`
   );
 }
 
