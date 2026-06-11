@@ -6,7 +6,7 @@ import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_TH
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
 import type { Order } from "@/lib/orders";
 import type { ColorZone, Printer, PrintRequest } from "@/lib/products";
-import { parseThreeMf, parseThreeMfMeta, parseSlicedStats } from "@/lib/threemf";
+import { parseThreeMf, parseThreeMfMeta, parseSlicedStats, mapZonesToFilaments, type SlicedFilament } from "@/lib/threemf";
 import { upload } from "@vercel/blob/client";
 import ZoneMapper from "@/components/ZoneMapper";
 import Image from "next/image";
@@ -261,13 +261,13 @@ export default function AdminPage() {
       if (!projectFile && !slicedFile) throw new Error("Genkendte hverken projekt- eller sliced-fil");
 
       const next: Partial<typeof EMPTY_FORM> = {};
+      let meshZones: ReturnType<typeof parseThreeMf>["zones"] | null = null;
+      let slicedFilaments: SlicedFilament[] | null = null;
 
       // Project file → 3D mesh + metadata.
       if (projectFile && projectBytes) {
-        const { zones } = parseThreeMf(projectBytes);
+        meshZones = parseThreeMf(projectBytes).zones;
         const meta = parseThreeMfMeta(projectBytes);
-        next.colorSlots = zones.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
-        next.colorZones = zones.map((z, i) => ({ key: z.key, slotId: `slot-${i + 1}`, color: z.color }));
         next.modelFile = await uploadModelToStorage(projectFile);
         if (meta.title) next.name = meta.title;
         if (meta.description) next.description = meta.description;
@@ -281,12 +281,22 @@ export default function AdminPage() {
       let statsMsg = "";
       if (slicedFile && slicedBytes) {
         const stats = parseSlicedStats(slicedBytes)!;
+        slicedFilaments = stats.filaments;
         next.printFile = await uploadModelToStorage(slicedFile);
         if (stats.printMinutes != null) { next.printHours = String(Math.floor(stats.printMinutes / 60)); next.printMins = String(stats.printMinutes % 60); }
         if (stats.filamentGrams != null) next.filamentGrams = String(stats.filamentGrams);
         const cost = computeMaterialCost(stats.filaments);
         if (cost != null) next.materialCost = (cost / 100).toFixed(2);
         statsMsg = ` · ${stats.printMinutes} min · ${stats.filamentGrams} g${cost != null ? ` · ${(cost / 100).toFixed(2)} kr` : ""}`;
+      }
+
+      // Colour slots/zones: the sliced file's filament list is authoritative for HOW
+      // MANY colours there are (paint_color is too lossy to count), so we build one
+      // slot per used filament and map the geometric mesh zones onto them.
+      if (meshZones) {
+        const { slots, colorZones } = mapZonesToFilaments(meshZones, slicedFilaments ?? []);
+        next.colorSlots = slots;
+        next.colorZones = colorZones;
       }
 
       setForm((f) => ({ ...f, ...next }));

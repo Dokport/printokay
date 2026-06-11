@@ -80,6 +80,69 @@ export function parseSlicedStats(buffer: Uint8Array): SlicedStats | null {
   };
 }
 
+// Squared RGB distance between two "#RRGGBB" colours (cheap nearest-colour metric).
+function colorDist(a: string, b: string): number {
+  const rgb = (h: string) => {
+    const x = h.replace(/^#/, "");
+    return [parseInt(x.slice(0, 2), 16) || 0, parseInt(x.slice(2, 4), 16) || 0, parseInt(x.slice(4, 6), 16) || 0];
+  };
+  const [r1, g1, b1] = rgb(a), [r2, g2, b2] = rgb(b);
+  return (r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2;
+}
+
+/**
+ * Reconcile a model's geometric mesh zones with the filaments actually used in the
+ * sliced file (the authoritative colour list). Produces one customer-facing colour
+ * slot per used filament, and maps every mesh zone onto a slot:
+ *
+ *  - zones with a reliable colour (the unpainted `e<extruder>` regions) → the slot
+ *    whose filament colour is nearest.
+ *  - painted `p<…>` zones (colour unknown — paint_color is lossy) → the remaining
+ *    filaments by descending usage, matched by descending zone area. Leftover zones
+ *    fall back to the most-used slot.
+ *
+ * This keeps the colour COUNT correct (it always equals the sliced filament count)
+ * regardless of how the paint_color tree happens to encode the boundaries.
+ */
+export function mapZonesToFilaments(
+  zones: MeshZone[],
+  filaments: SlicedFilament[]
+): { slots: { id: string; label: string }[]; colorZones: { key: string; slotId: string; color?: string }[] } {
+  const used = filaments.filter((f) => f.usedGrams > 0);
+  if (!used.length) {
+    // No sliced data — fall back to one slot per mesh zone.
+    const slots = zones.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
+    return { slots, colorZones: zones.map((z, i) => ({ key: z.key, slotId: `slot-${i + 1}`, color: z.color })) };
+  }
+
+  // One slot per used filament, ordered by descending usage (biggest area first).
+  const F = [...used].sort((a, b) => b.usedGrams - a.usedGrams);
+  const slots = F.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
+
+  const colorZones: { key: string; slotId: string; color?: string }[] = [];
+  const claimed = new Set<number>();
+
+  // Colour-bearing (unpainted) zones → nearest filament by colour.
+  const coloured = zones.filter((z) => z.color).sort((a, b) => b.indices.length - a.indices.length);
+  for (const z of coloured) {
+    let best = 0, bd = Infinity;
+    F.forEach((f, i) => { const d = colorDist(z.color!, f.color); if (d < bd) { bd = d; best = i; } });
+    claimed.add(best);
+    colorZones.push({ key: z.key, slotId: slots[best].id, color: F[best].color });
+  }
+
+  // Painted zones (colour unknown) → remaining filaments by usage, biggest zone first.
+  const painted = zones.filter((z) => !z.color).sort((a, b) => b.indices.length - a.indices.length);
+  const remaining = F.map((_, i) => i).filter((i) => !claimed.has(i));
+  for (const z of painted) {
+    const idx = remaining.length ? remaining.shift()! : 0; // fall back to the biggest slot
+    claimed.add(idx);
+    colorZones.push({ key: z.key, slotId: slots[idx].id, color: F[idx].color });
+  }
+
+  return { slots, colorZones };
+}
+
 function attr(tag: string, name: string): string | null {
   const m = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
   return m ? m[1] : null;
@@ -362,15 +425,15 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
   }
 
   const positions: number[] = [];
-  // First pass: collect every triangle with a raw "colour value":
-  //  - painted solid (short code)  → the code's numeric value
-  //  - unpainted                   → 0 (the base filament) when the mesh uses paint;
-  //                                  else the object's extruder index (per-object
-  //                                  multi-colour models that paint via extruder)
-  //  - boundary/split (long code)  → null, folded into the dominant colour later
-  type Tri = { a: number; b: number; c: number; value: number | null };
+  // First pass: classify each triangle.
+  //  - unpainted          → its object's extruder (reliable colour via filament list)
+  //  - painted solid code → the short code's numeric value (an opaque region id)
+  //  - painted long code  → a colour *boundary* (null), folded into the dominant zone
+  // We deliberately do NOT derive the colour COUNT from paint_color: it's a lossy,
+  // base-relative encoding. The sliced file's filament list is the source of truth
+  // for how many colours there are; the admin maps these geometric zones onto it.
+  type Tri = { a: number; b: number; c: number; ext: number; paint: number | null; painted: boolean };
   const tris: Tri[] = [];
-  let meshUsesPaint = false;
 
   for (const { meshXml, matrix, extruder } of placements) {
     // Vertices for THIS mesh start at this offset in the combined buffer.
@@ -395,48 +458,38 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
       const v3 = parseInt(attr(t, "v3") ?? "", 10);
       if (Number.isNaN(v1) || Number.isNaN(v2) || Number.isNaN(v3)) continue;
       const pc = attr(t, "paint_color");
-      let value: number | null;
-      if (pc) {
-        meshUsesPaint = true;
-        value = isSolidPaintCode(pc) ? parseInt(pc, 16) : null; // null = boundary
-      } else {
-        // No per-triangle paint: extruder 1 (base) → 0, else the object's extruder.
-        value = extruder > 1 ? extruder - 1 : 0;
-      }
-      tris.push({ a: baseIndex + v1, b: baseIndex + v2, c: baseIndex + v3, value });
+      const painted = !!pc;
+      const paint = pc ? (isSolidPaintCode(pc) ? parseInt(pc, 16) : null) : null;
+      tris.push({ a: baseIndex + v1, b: baseIndex + v2, c: baseIndex + v3, ext: extruder, paint, painted });
     }
   }
-  void meshUsesPaint; // (unpainted triangles already map to base filament value 0)
 
-  // Rank the distinct real colour values and map them DENSELY onto 0,1,2,… so N
-  // painted colours become exactly N zones, in ascending code order (which matches
-  // filament order: 0 < "4" < "8" < "1C" < "2C" …).
-  const present = [...new Set(tris.map((t) => t.value).filter((v): v is number => v != null))]
-    .sort((a, b) => a - b);
-  const indexOf = new Map(present.map((v, i) => [v, i]));
-
-  // Dominant colour = the index covering the most triangles. Boundary triangles
-  // (value === null) fold into it, so we never spawn a spurious zone for the seam.
-  const counts = new Map<number, number>();
-  for (const t of tris) if (t.value != null) {
-    const ci = indexOf.get(t.value)!;
-    counts.set(ci, (counts.get(ci) ?? 0) + 1);
-  }
-  let dominant = 0, bestCount = -1;
-  for (const [ci, n] of counts) if (n > bestCount) { bestCount = n; dominant = ci; }
-
-  const zoneByIndex = new Map<number, number[]>();
-  for (const t of tris) {
-    const ci = t.value != null ? indexOf.get(t.value)! : dominant;
-    let arr = zoneByIndex.get(ci);
-    if (!arr) zoneByIndex.set(ci, (arr = []));
+  // Group triangles into zones:
+  //  - unpainted  → key `e<extruder>` (colour = filament list entry — RELIABLE)
+  //  - painted    → key `p<value>`    (colour resolved later from the sliced file)
+  const groups = new Map<string, number[]>();
+  const add = (key: string, t: Tri) => {
+    let arr = groups.get(key);
+    if (!arr) groups.set(key, (arr = []));
     arr.push(t.a, t.b, t.c);
+  };
+  const boundary: Tri[] = [];
+  for (const t of tris) {
+    if (!t.painted) add(`e${t.ext}`, t);
+    else if (t.paint != null) add(`p${t.paint}`, t);
+    else boundary.push(t); // long boundary code → fold into the dominant zone below
   }
+  // Fold boundary triangles into whichever zone is largest (the seam is thin).
+  let domKey = "e1", domSize = -1;
+  for (const [k, arr] of groups) if (arr.length > domSize) { domSize = arr.length; domKey = k; }
+  for (const t of boundary) add(domKey, t);
 
   const modelColors = extractModelColors(files);
-  const zones: MeshZone[] = [...zoneByIndex.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([ci, indices]) => ({ key: `c${ci}`, indices, color: modelColors[ci] }));
+  const zones: MeshZone[] = [...groups.entries()].map(([key, indices]) => {
+    const em = key.match(/^e(\d+)$/);
+    const color = em ? modelColors[Number(em[1]) - 1] : undefined;
+    return { key, indices, color };
+  });
 
   return { positions, zones };
 }
