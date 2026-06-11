@@ -47,13 +47,16 @@ export async function GET(req: NextRequest) {
       printPath: p.printFile ? `/api/sync/models/${p.id}?which=print` : null,
     }));
 
+  // Legacy file-detail stats path: products with a Bambuddy id but no Project.
   const awaitingStats = products
-    .filter((p) => (p.bambuddy?.printFileId || p.bambuddyId) && statsIncomplete(p))
-    .map((p) => ({
-      id: p.id,
-      // Prefer the sliced print file for stats; fall back to legacy id.
-      bambuddyId: p.bambuddy?.printFileId || p.bambuddy?.projectFileId || p.bambuddyId,
-    }));
+    .filter((p) => !p.bambuddy?.projectId && p.bambuddyId && statsIncomplete(p))
+    .map((p) => ({ id: p.id, bambuddyId: p.bambuddyId }));
 
-  return NextResponse.json({ toUpload, awaitingStats });
+  // Project-based products: re-read archives every cycle for authoritative stats
+  // (real prints override estimates) + aggregated print history.
+  const projects = products
+    .filter((p) => p.bambuddy?.projectId)
+    .map((p) => ({ id: p.id, projectId: p.bambuddy!.projectId }));
+
+  return NextResponse.json({ toUpload, awaitingStats, projects });
 }

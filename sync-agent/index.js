@@ -31,6 +31,8 @@ const cfg = {
   foldersPath: process.env.BAMBUDDY_FOLDERS_PATH || "/api/v1/library/folders/",
   projectsPath: process.env.BAMBUDDY_PROJECTS_PATH || "/api/v1/projects/",
   uploadField: process.env.BAMBUDDY_UPLOAD_FIELD || "file",
+  // Bambuddy archive `cost` is in major currency units (kr); shop stores øre.
+  costToOere: Number(process.env.BAMBUDDY_COST_TO_OERE || 100),
   // Top-level Bambuddy folder all shop products live under.
   rootFolder: process.env.BAMBUDDY_ROOT_FOLDER || "printOKAY",
 
@@ -134,7 +136,7 @@ function mapSpool(s) {
 // ── Flow 2: models shop → Bambuddy, then stats back ─────────────────────────
 async function syncModels() {
   folderCache.clear(); // re-resolve folders each run (they may change externally)
-  const { toUpload, awaitingStats } = await shop("/api/sync/models").then((r) => r.json());
+  const { toUpload, awaitingStats, projects } = await shop("/api/sync/models").then((r) => r.json());
 
   for (const m of toUpload || []) {
     try {
@@ -151,6 +153,77 @@ async function syncModels() {
       err(`model stats (${m.id}):`, e.message);
     }
   }
+
+  for (const m of projects || []) {
+    try {
+      await fetchProjectStats(m);
+    } catch (e) {
+      err(`project stats (${m.id}):`, e.message);
+    }
+  }
+}
+
+// A project's archives are its real prints. Aggregate them into print history and
+// derive authoritative per-print stats from the most recent successful print.
+async function fetchProjectStats(m) {
+  const raw = await bam(`${cfg.projectsPath}${m.projectId}/archives`).then((r) => r.json());
+  const list = Array.isArray(raw) ? raw : raw.archives || raw.items || raw.data || [];
+
+  const isSuccess = (a) => {
+    const s = String(a.status || "").toLowerCase();
+    if (["failed", "cancelled", "canceled", "aborted", "error"].includes(s)) return false;
+    if (a.failure_reason) return false;
+    return s === "completed" || s === "success" || s === "finished" || s === "done" || !!a.completed_at;
+  };
+
+  const done = list.filter(isSuccess);
+
+  // Aggregated history (count weighted by quantity where present).
+  let count = 0, totalGrams = 0, totalCostOre = 0, lastPrintedAt = null;
+  for (const a of done) {
+    const qty = num(a.quantity) ?? 1;
+    count += qty;
+    totalGrams += (num(a.filament_used_grams) ?? 0) * qty;
+    totalCostOre += (num(a.cost) ?? 0) * cfg.costToOere * qty;
+    const when = a.completed_at || a.created_at;
+    if (when && (!lastPrintedAt || when > lastPrintedAt)) lastPrintedAt = when;
+  }
+
+  await shop("/api/sync/models/history", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      productId: m.id,
+      printStats: {
+        count,
+        totalGrams: Math.round(totalGrams * 100) / 100,
+        totalCost: Math.round(totalCostOre),
+        lastPrintedAt,
+      },
+    }),
+  });
+
+  // Authoritative per-print stats from the most recent successful print.
+  if (done.length) {
+    const latest = done.reduce((a, b) =>
+      (b.completed_at || b.created_at || "") > (a.completed_at || a.created_at || "") ? b : a
+    );
+    const sec = num(latest.actual_time_seconds) ?? num(latest.print_time_seconds);
+    const printMinutes = sec != null ? Math.round(sec / 60) : null;
+    const filamentGrams = num(latest.filament_used_grams);
+    const cost = num(latest.cost);
+    const materialCost = cost != null ? Math.round(cost * cfg.costToOere) : null;
+
+    if (printMinutes != null || filamentGrams != null || materialCost != null) {
+      await shop("/api/sync/models/stats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: m.id, printMinutes, filamentGrams, materialCost, source: "actual" }),
+      });
+    }
+  }
+
+  log(`project: "${m.id}" historik (${count} prints, ${Math.round(totalGrams)} g)`);
 }
 
 // Create one Bambuddy Project per shop product, with a linked library folder

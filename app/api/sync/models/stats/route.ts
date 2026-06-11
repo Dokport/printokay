@@ -4,10 +4,14 @@
  * Bambuddy is authoritative for print time, filament usage and material cost, so
  * these overwrite the product's fields. The selling price is never touched.
  *
- * Body: { productId, printMinutes?, filamentGrams?, materialCost? }
+ * Body: { productId, printMinutes?, filamentGrams?, materialCost?, source? }
  *   - printMinutes: minutes
  *   - filamentGrams: grams
  *   - materialCost: DKK øre
+ *   - source: "estimate" (from a sliced file) | "actual" (from a real print/archive)
+ *
+ * Precedence: once a product has "actual" stats (a real print happened), an
+ * "estimate" update is ignored so we never regress to predicted numbers.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { Product } from "@/lib/products";
@@ -19,7 +23,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
 
-  const { productId, printMinutes, filamentGrams, materialCost } = await req.json();
+  const { productId, printMinutes, filamentGrams, materialCost, source } = await req.json();
   if (!productId) {
     return NextResponse.json({ error: "productId påkrævet" }, { status: 400 });
   }
@@ -30,11 +34,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
   }
 
+  const incoming: "estimate" | "actual" = source === "actual" ? "actual" : "estimate";
+
+  // Don't let an estimate overwrite stats that came from a real print.
+  if (incoming === "estimate" && products[idx].statsSource === "actual") {
+    return NextResponse.json({ ok: true, skipped: "actual stats present" });
+  }
+
   products[idx] = {
     ...products[idx],
     ...(printMinutes != null ? { printMinutes: Math.round(Number(printMinutes)) } : {}),
     ...(filamentGrams != null ? { filamentGrams: Number(filamentGrams) } : {}),
     ...(materialCost != null ? { materialCost: Math.round(Number(materialCost)) } : {}),
+    statsSource: incoming,
     bambuddyStatsAt: new Date().toISOString(),
   };
 

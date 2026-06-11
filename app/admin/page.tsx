@@ -674,13 +674,31 @@ export default function AdminPage() {
                         className="text-xs text-red-400 hover:text-red-600">Fjern</button>
                     </>
                   )}
-                  {/* Sync status (only meaningful when editing an existing product) */}
+                  {/* Sync status + print history (only when editing an existing product) */}
                   {editingId && (() => {
                     const ep = products.find((p) => p.id === editingId);
-                    if (!ep?.modelFile) return null;
-                    if (ep.bambuddyStatsAt) return <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✓ Stats hentet</span>;
-                    if (ep.modelSyncedAt) return <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">✓ I Bambuddy</span>;
-                    return <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">⏳ Afventer Bambuddy</span>;
+                    if (!ep || (!ep.modelFile && !ep.printFile)) return null;
+                    const synced = ep.bambuddy?.syncedAt || ep.modelSyncedAt;
+                    const st = ep.printStats;
+                    return (
+                      <>
+                        {ep.statsSource === "actual" ? (
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✓ Faktiske stats</span>
+                        ) : synced ? (
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">✓ I Bambuddy</span>
+                        ) : (
+                          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">⏳ Afventer Bambuddy</span>
+                        )}
+                        {st && st.count > 0 && (
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-medium">
+                            🖨️ Printet {st.count}×
+                            {st.totalGrams != null ? ` · ${st.totalGrams.toFixed(0)} g` : ""}
+                            {st.totalCost != null ? ` · ${(st.totalCost / 100).toFixed(0)} kr` : ""}
+                            {st.lastPrintedAt ? ` · sidst ${new Date(st.lastPrintedAt).toLocaleDateString("da-DK")}` : ""}
+                          </span>
+                        )}
+                      </>
+                    );
                   })()}
                 </div>
               </div>
