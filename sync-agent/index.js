@@ -141,13 +141,21 @@ function mapSpool(s) {
 // ── Flow 2: models shop → Bambuddy, then stats back ─────────────────────────
 async function syncModels() {
   folderCache.clear(); // re-resolve folders each run (they may change externally)
-  const { toUpload, withFiles } = await shop("/api/sync/models").then((r) => r.json());
+  const { toUpload, withFiles, toRename } = await shop("/api/sync/models").then((r) => r.json());
 
   for (const m of toUpload || []) {
     try {
       await uploadModel(m);
     } catch (e) {
       err(`model upload (${m.name}):`, e.message);
+    }
+  }
+
+  for (const m of toRename || []) {
+    try {
+      await renameModel(m);
+    } catch (e) {
+      err(`model rename (${m.id}):`, e.message);
     }
   }
 
@@ -312,6 +320,44 @@ async function uploadModel(m) {
       (project?.id ? `, project=${project.id}` : "") +
       `, projekt=${projectFileId || "—"}, print=${printFileId || "—"}`
   );
+}
+
+// Product renamed/recategorised in the shop → rename the Bambuddy folder + files
+// (and re-parent on a category change) so the library stays human-readable.
+async function renameModel(m) {
+  const safe = (m.name || "model").replace(/[^a-zA-Z0-9æøåÆØÅ._ -]/g, "_").trim() || "model";
+
+  // Re-parent the folder if the category changed.
+  let parentId;
+  if (m.categoryChanged) {
+    const root = await ensureFolder(cfg.rootFolder, null);
+    const category = await ensureFolder((m.category || "Ukategoriseret").trim(), root.id);
+    parentId = category.id;
+  }
+
+  await bam(`${cfg.foldersPath}${m.folderId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: safe, ...(parentId != null ? { parent_id: Number(parentId) } : {}) }),
+  });
+
+  if (m.projectFileId) await renameFile(m.projectFileId, `${safe} - projekt.3mf`);
+  if (m.printFileId) await renameFile(m.printFileId, `${safe} - print.gcode.3mf`);
+
+  await shop("/api/sync/models/renamed", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ productId: m.id }),
+  });
+  log(`model: omdøbt i Bambuddy → "${safe}"${m.categoryChanged ? " (+ flyttet)" : ""}`);
+}
+
+async function renameFile(fileId, filename) {
+  await bam(`${cfg.filesPath}/${fileId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename }),
+  });
 }
 
 // Download a file from the shop and upload it into a Bambuddy folder. Returns id.

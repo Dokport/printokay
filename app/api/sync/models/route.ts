@@ -62,5 +62,25 @@ export async function GET(req: NextRequest) {
       needEstimate: statsIncomplete(p),
     }));
 
-  return NextResponse.json({ toUpload, withFiles });
+  // Products renamed/recategorised in the shop after syncing: the sidecar renames
+  // the Bambuddy folder + files (and re-parents on a category change) so the
+  // library always matches the shop. The link itself is by id, so nothing breaks
+  // either way — this just keeps Bambuddy human-readable.
+  const toRename = products
+    .filter(
+      (p) =>
+        p.bambuddy?.folderId &&
+        (p.name !== p.bambuddy.syncedName || (p.category || "") !== (p.bambuddy.syncedCategory || ""))
+    )
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      category: p.category || "",
+      folderId: p.bambuddy!.folderId,
+      projectFileId: p.bambuddy!.projectFileId,
+      printFileId: p.bambuddy!.printFileId,
+      categoryChanged: (p.category || "") !== (p.bambuddy!.syncedCategory || ""),
+    }));
+
+  return NextResponse.json({ toUpload, withFiles, toRename });
 }

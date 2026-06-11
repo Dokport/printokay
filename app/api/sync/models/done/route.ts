@@ -38,6 +38,9 @@ export async function POST(req: NextRequest) {
       ...(bambuddy.projectFileId != null ? { projectFileId: String(bambuddy.projectFileId) } : {}),
       ...(bambuddy.printFileId != null ? { printFileId: String(bambuddy.printFileId) } : {}),
       syncedAt: now,
+      // Remember the name/category we used, so a later rename can be detected.
+      syncedName: products[idx].name,
+      syncedCategory: products[idx].category,
     };
     products[idx] = {
       ...products[idx],

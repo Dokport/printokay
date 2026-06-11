@@ -46,6 +46,8 @@ export type BambuddyLink = {
   projectFileId?: string; // projekt-filens id i Bambuddy
   printFileId?: string;   // sliced-filens id i Bambuddy (print + stats)
   syncedAt?: string;      // ISO-tid: filer + project oprettet i Bambuddy
+  syncedName?: string;     // produktnavnet da mappe/filer sidst blev navngivet
+  syncedCategory?: string; // kategorien da mappen sidst blev placeret
 };
 
 export type PrintStats = {
