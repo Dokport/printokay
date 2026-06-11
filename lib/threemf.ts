@@ -28,6 +28,58 @@ export type ProjectMeta = {
   thumbnail?: Uint8Array; // a render PNG, if present
 };
 
+export type SlicedFilament = { type: string; color: string; usedGrams: number };
+export type SlicedStats = {
+  printMinutes?: number;
+  filamentGrams?: number;
+  filaments: SlicedFilament[];
+};
+
+/**
+ * Extract print estimates from a sliced .gcode.3mf's `slice_info.config`:
+ * `prediction` (print time, seconds), `weight` (filament grams) and the
+ * per-filament `used_g`/`type`/`color`. Returns null for an unsliced project file.
+ */
+export function parseSlicedStats(buffer: Uint8Array): SlicedStats | null {
+  const files = unzipSync(buffer);
+  const si = Object.keys(files).find((n) => /slice_info\.config$/i.test(n));
+  if (!si) return null;
+  const xml = strFromU8(files[si]);
+
+  const sum = (re: RegExp): number | undefined => {
+    let total = 0, found = false;
+    let m: RegExpExecArray | null;
+    const g = new RegExp(re.source, "gi");
+    while ((m = g.exec(xml))) { total += Number(m[1]) || 0; found = true; }
+    return found ? total : undefined;
+  };
+
+  const predictionSec = sum(/key="prediction"[^>]*value="([\d.]+)"/);
+  if (predictionSec == null) return null; // not sliced
+
+  const weightG = sum(/key="weight"[^>]*value="([\d.]+)"/);
+
+  const filaments: SlicedFilament[] = [];
+  const fre = /<filament\b[^>]*\/?>/gi;
+  let fm: RegExpExecArray | null;
+  while ((fm = fre.exec(xml))) {
+    const tag = fm[0];
+    const used = Number(attr(tag, "used_g"));
+    if (!used) continue;
+    filaments.push({
+      type: attr(tag, "type") ?? "",
+      color: normHex(attr(tag, "color") ?? "#888888"),
+      usedGrams: used,
+    });
+  }
+
+  return {
+    printMinutes: Math.round(predictionSec / 60),
+    filamentGrams: weightG != null ? Math.round(weightG * 100) / 100 : undefined,
+    filaments,
+  };
+}
+
 function attr(tag: string, name: string): string | null {
   const m = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
   return m ? m[1] : null;

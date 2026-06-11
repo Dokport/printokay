@@ -6,7 +6,7 @@ import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_TH
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
 import type { Order } from "@/lib/orders";
 import type { ColorZone } from "@/lib/products";
-import { parseThreeMf, parseThreeMfMeta } from "@/lib/threemf";
+import { parseThreeMf, parseThreeMfMeta, parseSlicedStats } from "@/lib/threemf";
 import { upload } from "@vercel/blob/client";
 import ZoneMapper from "@/components/ZoneMapper";
 import Image from "next/image";
@@ -14,7 +14,7 @@ import Image from "next/image";
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
-const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "", modelFile: "", colorZones: [] as ColorZone[], previewModel: "" };
+const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "", modelFile: "", printFile: "", colorZones: [] as ColorZone[], previewModel: "" };
 const SESSION_KEY = "po_adm";
 
 function getStoredPw(): string | null {
@@ -206,41 +206,85 @@ export default function AdminPage() {
     return d.url ?? "";
   }
 
-  // Auto mode: parse the Bambu project IN THE BROWSER (instant) and pre-fill
-  // everything; the raw file is uploaded straight to storage.
+  // Material cost (øre) from the sliced file's per-filament usage × cost/kg,
+  // matching each filament to the nearest in-stock spool by colour.
+  function computeMaterialCost(filaments: { type: string; color: string; usedGrams: number }[]): number | undefined {
+    const spools = settings.filaments ?? [];
+    if (!spools.length) return undefined;
+    const toRgb = (h: string): [number, number, number] => {
+      const s = h.replace("#", "");
+      return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+    };
+    let totalOre = 0, anyCost = false;
+    for (const f of filaments) {
+      const t = toRgb(f.color);
+      let best: FilamentSpool | null = null, bd = Infinity;
+      for (const s of spools) {
+        if (f.type && s.material && s.material !== f.type) continue;
+        const c = toRgb(s.colorHex);
+        const d = (c[0] - t[0]) ** 2 + (c[1] - t[1]) ** 2 + (c[2] - t[2]) ** 2;
+        if (d < bd) { bd = d; best = s; }
+      }
+      if (best?.costPerKg) { totalOre += (f.usedGrams / 1000) * best.costPerKg; anyCost = true; }
+    }
+    return anyCost ? Math.round(totalOre) : undefined;
+  }
+
+  // Auto mode: drop BOTH the project (.3mf, mesh → 3D) and the sliced
+  // (.gcode.3mf → print + stats) file. We classify each by content, upload both,
+  // and pre-fill everything (incl. instant print stats) — all in the browser.
   async function handleProjectUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
     setParsingModel(true);
     setProductMsg("");
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const { zones } = parseThreeMf(bytes);
-      if (!zones.length) throw new Error("Ingen 3D-geometri i filen (er den sliced?)");
-      const meta = parseThreeMfMeta(bytes);
+      let projectBytes: Uint8Array | null = null, projectFile: File | null = null;
+      let slicedBytes: Uint8Array | null = null, slicedFile: File | null = null;
 
-      const colorSlots = zones.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
-      const colorZones: ColorZone[] = zones.map((z, i) => ({ key: z.key, slotId: `slot-${i + 1}`, color: z.color }));
-
-      const modelFile = await uploadModelToStorage(file);
-      let image = "";
-      if (meta.thumbnail?.length) {
-        try { image = await uploadThumbnail(meta.thumbnail); } catch { /* image optional */ }
+      for (const file of files) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (parseThreeMf(bytes).zones.length > 0) { projectBytes = bytes; projectFile = file; }
+        else if (parseSlicedStats(bytes)) { slicedBytes = bytes; slicedFile = file; }
       }
 
-      setForm((f) => ({
-        ...f,
-        name: meta.title || f.name,
-        description: meta.description || f.description,
-        material: meta.material || f.material,
-        modelFile,
-        image,
-        images: image ? [image] : f.images,
-        colorSlots,
-        colorZones,
-      }));
+      if (!projectFile && !slicedFile) throw new Error("Genkendte hverken projekt- eller sliced-fil");
+
+      const next: Partial<typeof EMPTY_FORM> = {};
+
+      // Project file → 3D mesh + metadata.
+      if (projectFile && projectBytes) {
+        const { zones } = parseThreeMf(projectBytes);
+        const meta = parseThreeMfMeta(projectBytes);
+        next.colorSlots = zones.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
+        next.colorZones = zones.map((z, i) => ({ key: z.key, slotId: `slot-${i + 1}`, color: z.color }));
+        next.modelFile = await uploadModelToStorage(projectFile);
+        if (meta.title) next.name = meta.title;
+        if (meta.description) next.description = meta.description;
+        if (meta.material) next.material = meta.material;
+        if (meta.thumbnail?.length) {
+          try { const img = await uploadThumbnail(meta.thumbnail); next.image = img; next.images = [img]; } catch { /* optional */ }
+        }
+      }
+
+      // Sliced file → printable in Bambuddy + instant stats.
+      let statsMsg = "";
+      if (slicedFile && slicedBytes) {
+        const stats = parseSlicedStats(slicedBytes)!;
+        next.printFile = await uploadModelToStorage(slicedFile);
+        if (stats.printMinutes != null) { next.printHours = String(Math.floor(stats.printMinutes / 60)); next.printMins = String(stats.printMinutes % 60); }
+        if (stats.filamentGrams != null) next.filamentGrams = String(stats.filamentGrams);
+        const cost = computeMaterialCost(stats.filaments);
+        if (cost != null) next.materialCost = (cost / 100).toFixed(2);
+        statsMsg = ` · ${stats.printMinutes} min · ${stats.filamentGrams} g${cost != null ? ` · ${(cost / 100).toFixed(2)} kr` : ""}`;
+      }
+
+      setForm((f) => ({ ...f, ...next }));
+      const have = [projectFile && "projekt", slicedFile && "sliced"].filter(Boolean).join(" + ");
+      setProductMsg(`✓ Indlæst: ${have}${statsMsg}`);
+      setTimeout(() => setProductMsg(""), 8000);
     } catch (err) {
-      setProductMsg("Kunne ikke læse filen: " + (err instanceof Error ? err.message : "ukendt fejl"));
+      setProductMsg("Kunne ikke læse filerne: " + (err instanceof Error ? err.message : "ukendt fejl"));
       setTimeout(() => setProductMsg(""), 6000);
     }
     setParsingModel(false);
@@ -322,7 +366,7 @@ export default function AdminPage() {
       ? product.images
       : product.image ? [product.image] : [];
     const pm = product.printMinutes ?? 0;
-    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printHours: pm ? String(Math.floor(pm / 60)) : "", printMins: pm ? String(pm % 60) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "", modelFile: product.modelFile ?? "", colorZones: product.colorZones ?? [], previewModel: product.previewModel ?? "" });
+    setForm({ name: product.name, description: product.description, price: (product.price / 100).toString(), emoji: product.emoji, category: product.category, image: imgs[0] ?? "", images: imgs, material: product.material ?? "", modelUrl: product.modelUrl ?? "", colorSlots: product.colorSlots ?? [], printHours: pm ? String(Math.floor(pm / 60)) : "", printMins: pm ? String(pm % 60) : "", filamentGrams: product.filamentGrams ? String(product.filamentGrams) : "", materialCost: product.materialCost ? (product.materialCost / 100).toFixed(2) : "", modelFile: product.modelFile ?? "", printFile: product.printFile ?? "", colorZones: product.colorZones ?? [], previewModel: product.previewModel ?? "" });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -438,12 +482,12 @@ export default function AdminPage() {
 
             {/* ── AUTO MODE: upload a Bambu project, shop fills the rest ── */}
             {productMode === "auto" && !editingId ? (
-              !form.modelFile ? (
+              !form.modelFile && !form.printFile ? (
                 <label className={`flex flex-col items-center justify-center gap-2 py-12 rounded-2xl border-2 border-dashed cursor-pointer transition-colors ${parsingModel ? "border-purple-300 bg-purple-50" : "border-gray-300 hover:border-purple-400 hover:bg-purple-50"}`}>
                   <span className="text-4xl">{parsingModel ? "⏳" : "📦"}</span>
-                  <span className="font-medium text-gray-700">{parsingModel ? "Læser projektfil…" : "Upload Bambu Studio projekt (.3mf)"}</span>
-                  <span className="text-xs text-gray-400">Navn, billede, materiale og farvezoner udfyldes automatisk</span>
-                  <input ref={projectFileRef} type="file" accept=".3mf,.stl" className="hidden" onChange={handleProjectUpload} disabled={parsingModel} />
+                  <span className="font-medium text-gray-700">{parsingModel ? "Læser filer…" : "Upload projekt + sliced fil"}</span>
+                  <span className="text-xs text-gray-400 text-center px-4">Vælg <b>begge</b> filer: projekt-.3mf (3D) og plate-sliced .gcode.3mf (print + stats). Navn, billede, zoner og stats udfyldes automatisk.</span>
+                  <input ref={projectFileRef} type="file" accept=".3mf,.gcode,.gcode.3mf,.stl" multiple className="hidden" onChange={handleProjectUpload} disabled={parsingModel} />
                 </label>
               ) : (
                 <form onSubmit={handleSave} className="flex flex-col gap-4">
@@ -454,7 +498,14 @@ export default function AdminPage() {
                       </div>
                     )}
                     <div className="flex-1 min-w-[200px] flex flex-col gap-1">
-                      <span className="text-xs text-green-600 font-medium">✓ Projekt indlæst — udfyld pris og kategori</span>
+                      <div className="flex flex-wrap gap-2 text-xs font-medium">
+                        <span className={form.modelFile ? "text-green-600" : "text-amber-600"}>{form.modelFile ? "✓ Projekt (3D)" : "⚠ Mangler projekt-fil (3D)"}</span>
+                        <span className={form.printFile ? "text-green-600" : "text-amber-600"}>{form.printFile ? "✓ Sliced (print + stats)" : "⚠ Mangler sliced-fil (print/stats)"}</span>
+                      </div>
+                      {(Number(form.printHours) > 0 || Number(form.printMins) > 0 || form.filamentGrams) && (
+                        <span className="text-xs text-gray-500">🕐 {form.printHours||0}t {form.printMins||0}m · 🧵 {form.filamentGrams||"?"} g{form.materialCost ? ` · 💰 ${form.materialCost} kr` : ""}</span>
+                      )}
+                      <span className="text-xs text-gray-400">Udfyld pris og kategori og gem.</span>
                       <div className="flex flex-wrap gap-1 mt-1">
                         {(form.colorZones ?? []).map((z, i) => (
                           <span key={i} className="inline-flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 rounded-full px-2 py-0.5">
@@ -463,7 +514,11 @@ export default function AdminPage() {
                           </span>
                         ))}
                       </div>
-                      <button type="button" onClick={() => setForm(EMPTY_FORM)} className="text-xs text-gray-400 hover:text-red-500 w-fit mt-1">Skift fil</button>
+                      <label className="text-xs text-purple-600 hover:text-purple-800 cursor-pointer w-fit mt-1">
+                        + Tilføj manglende fil
+                        <input type="file" accept=".3mf,.gcode,.gcode.3mf,.stl" multiple className="hidden" onChange={handleProjectUpload} disabled={parsingModel} />
+                      </label>
+                      <button type="button" onClick={() => setForm(EMPTY_FORM)} className="text-xs text-gray-400 hover:text-red-500 w-fit">Start forfra</button>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
