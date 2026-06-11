@@ -61,9 +61,11 @@ sekund og er idempotent.
 - **Project pr. produkt:** `POST /api/v1/projects/` (`name`, `notes`) → container for produktets
   prints. En linket mappe oprettes med `POST /api/v1/library/folders/` (`name`, `parent_id`,
   `project_id`); begge filer uploades med `?folder_id=<id>`. Hierarki: `printOKAY/<Kategori>/<Produkt>`.
-- **Faktiske stats + historik:** `GET /api/v1/projects/{id}/archives` → de reelle prints
-  (`status`, `actual_time_seconds`, `filament_used_grams`, `cost`, `completed_at`). Aggregeres til
-  historik og seneste vellykkede print → autoritative stats (`source="actual"`).
+- **Faktiske stats + historik (uden projects):** Bambuddy-Projects kan ikke oprettes via API-nøgle
+  (403 — kræver bruger/gruppe-rettighed der ikke kan tildeles nøgler). Vi bruger i stedet selve
+  library-filen: `GET /library/files/{id}` giver `print_count` + `last_printed_at`, og `GET /archives/`
+  matches til filen via `content_hash` == filens `file_hash` (fallback: filnavn). Aggregeres til
+  historik; seneste vellykkede print → autoritative stats (`source="actual"`).
 - **Send til print:** `GET /api/v1/printers/` synkes til shoppen; admin vælger printer og opretter
   en request, som sidecaren udfører med `POST /api/v1/library/files/{printFileId}/print?printer_id=<id>`.
 

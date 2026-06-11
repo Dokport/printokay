@@ -31,6 +31,8 @@ const cfg = {
   foldersPath: process.env.BAMBUDDY_FOLDERS_PATH || "/api/v1/library/folders/",
   projectsPath: process.env.BAMBUDDY_PROJECTS_PATH || "/api/v1/projects/",
   printersPath: process.env.BAMBUDDY_PRINTERS_PATH || "/api/v1/printers/",
+  archivesPath: process.env.BAMBUDDY_ARCHIVES_PATH || "/api/v1/archives/",
+  archivesLimit: Number(process.env.BAMBUDDY_ARCHIVES_LIMIT || 200),
   uploadField: process.env.BAMBUDDY_UPLOAD_FIELD || "file",
   // Default printer for send-to-print when a request doesn't name one.
   defaultPrinterId: process.env.DEFAULT_PRINTER_ID || "",
@@ -139,7 +141,7 @@ function mapSpool(s) {
 // ── Flow 2: models shop → Bambuddy, then stats back ─────────────────────────
 async function syncModels() {
   folderCache.clear(); // re-resolve folders each run (they may change externally)
-  const { toUpload, awaitingStats, projects } = await shop("/api/sync/models").then((r) => r.json());
+  const { toUpload, withFiles } = await shop("/api/sync/models").then((r) => r.json());
 
   for (const m of toUpload || []) {
     try {
@@ -149,39 +151,48 @@ async function syncModels() {
     }
   }
 
-  for (const m of awaitingStats || []) {
+  for (const m of withFiles || []) {
     try {
-      await fetchStats(m);
+      await fetchFileStats(m);
     } catch (e) {
-      err(`model stats (${m.id}):`, e.message);
-    }
-  }
-
-  for (const m of projects || []) {
-    try {
-      await fetchProjectStats(m);
-    } catch (e) {
-      err(`project stats (${m.id}):`, e.message);
+      err(`file stats (${m.id}):`, e.message);
     }
   }
 }
 
-// A project's archives are its real prints. Aggregate them into print history and
-// derive authoritative per-print stats from the most recent successful print.
-async function fetchProjectStats(m) {
-  const raw = await bam(`${cfg.projectsPath}${m.projectId}/archives`).then((r) => r.json());
-  const list = Array.isArray(raw) ? raw : raw.archives || raw.items || raw.data || [];
+const isSuccessfulPrint = (a) => {
+  const s = String(a.status || "").toLowerCase();
+  if (["failed", "cancelled", "canceled", "aborted", "error"].includes(s)) return false;
+  if (a.failure_reason) return false;
+  return s === "completed" || s === "success" || s === "finished" || s === "done" || !!a.completed_at;
+};
 
-  const isSuccess = (a) => {
-    const s = String(a.status || "").toLowerCase();
-    if (["failed", "cancelled", "canceled", "aborted", "error"].includes(s)) return false;
-    if (a.failure_reason) return false;
-    return s === "completed" || s === "success" || s === "finished" || s === "done" || !!a.completed_at;
-  };
+// Bambuddy is the source of truth for print data. We don't need a Project: the
+// library file itself carries print_count + last_printed_at, and the real prints
+// live in /archives matched to the file by hash (fallback: filename).
+async function fetchFileStats(m) {
+  if (!m.fileId) return;
+  const file = await bam(`${cfg.filesPath}/${m.fileId}`).then((r) => r.json());
+  const fileHash = file.file_hash || file.content_hash;
+  const fileName = file.filename;
 
-  const done = list.filter(isSuccess);
+  // Find this file's real prints among the archives (match by hash, then name).
+  let archives = [];
+  try {
+    const raw = await bam(`${cfg.archivesPath}?limit=${cfg.archivesLimit}`).then((r) => r.json());
+    const all = Array.isArray(raw) ? raw : raw.archives || raw.items || raw.data || [];
+    archives = all.filter((a) => {
+      if (fileHash && a.content_hash) return a.content_hash === fileHash;
+      if (fileName && a.filename) return a.filename === fileName;
+      return false;
+    });
+  } catch (e) {
+    err(`archives lookup (${m.id}):`, e.message);
+  }
 
-  // Aggregated history (count weighted by quantity where present).
+  const done = archives.filter(isSuccessfulPrint);
+
+  // ── Aggregated history ──
   let count = 0, totalGrams = 0, totalCostOre = 0, lastPrintedAt = null;
   for (const a of done) {
     const qty = num(a.quantity) ?? 1;
@@ -191,22 +202,27 @@ async function fetchProjectStats(m) {
     const when = a.completed_at || a.created_at;
     if (when && (!lastPrintedAt || when > lastPrintedAt)) lastPrintedAt = when;
   }
+  // Fall back to the file's own counters if archive matching found nothing.
+  if (count === 0 && num(file.print_count)) count = num(file.print_count);
+  if (!lastPrintedAt && file.last_printed_at) lastPrintedAt = file.last_printed_at;
 
-  await shop("/api/sync/models/history", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      productId: m.id,
-      printStats: {
-        count,
-        totalGrams: Math.round(totalGrams * 100) / 100,
-        totalCost: Math.round(totalCostOre),
-        lastPrintedAt,
-      },
-    }),
-  });
+  if (count > 0 || lastPrintedAt) {
+    await shop("/api/sync/models/history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productId: m.id,
+        printStats: {
+          count,
+          ...(totalGrams > 0 ? { totalGrams: Math.round(totalGrams * 100) / 100 } : {}),
+          ...(totalCostOre > 0 ? { totalCost: Math.round(totalCostOre) } : {}),
+          lastPrintedAt,
+        },
+      }),
+    });
+  }
 
-  // Authoritative per-print stats from the most recent successful print.
+  // ── Authoritative stats: most recent real print overrides the estimate ──
   if (done.length) {
     const latest = done.reduce((a, b) =>
       (b.completed_at || b.created_at || "") > (a.completed_at || a.created_at || "") ? b : a
@@ -216,7 +232,6 @@ async function fetchProjectStats(m) {
     const filamentGrams = num(latest.filament_used_grams);
     const cost = num(latest.cost);
     const materialCost = cost != null ? Math.round(cost * cfg.costToOere) : null;
-
     if (printMinutes != null || filamentGrams != null || materialCost != null) {
       await shop("/api/sync/models/stats", {
         method: "POST",
@@ -224,9 +239,24 @@ async function fetchProjectStats(m) {
         body: JSON.stringify({ productId: m.id, printMinutes, filamentGrams, materialCost, source: "actual" }),
       });
     }
+    log(`file: "${m.id}" — ${count} prints, ${Math.round(totalGrams)} g (faktiske stats)`);
+    return;
   }
 
-  log(`project: "${m.id}" historik (${count} prints, ${Math.round(totalGrams)} g)`);
+  // ── No real print yet: backfill estimate from the sliced file detail ──
+  if (m.needEstimate) {
+    const sec = num(file.print_time_seconds);
+    const printMinutes = sec != null ? Math.round(sec / 60) : null;
+    const filamentGrams = num(file.filament_used_grams);
+    if (printMinutes != null || filamentGrams != null) {
+      await shop("/api/sync/models/stats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: m.id, printMinutes, filamentGrams, source: "estimate" }),
+      });
+      log(`file: "${m.id}" — estimat fra sliced fil (tid=${printMinutes}, gram=${filamentGrams})`);
+    }
+  }
 }
 
 // Create one Bambuddy Project per shop product, with a linked library folder
@@ -329,67 +359,6 @@ async function createProject({ name, notes }) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, notes }),
   }).then((r) => r.json());
-}
-
-async function fetchStats(m) {
-  const file = await bam(`${cfg.filesPath}/${m.bambuddyId}`).then((r) => r.json());
-
-  // Bambuddy file detail: print_time_seconds + filament_used_grams (null until sliced).
-  const sec = num(file.print_time_seconds);
-  const printMinutes = sec != null ? Math.round(sec / 60) : null;
-  let filamentGrams = num(file.filament_used_grams);
-
-  // Material cost: prefer the per-filament breakdown (accurate for multi-colour),
-  // matching each filament to a spool by material + colour. Falls back to total
-  // grams × material/avg rate if the breakdown isn't available.
-  let materialCost = null;
-  let reqs = null;
-  try {
-    reqs = await bam(`${cfg.filesPath}/${m.bambuddyId}/filament-requirements`).then((r) => r.json());
-  } catch { /* endpoint optional */ }
-
-  const filaments = reqs?.filaments;
-  if (Array.isArray(filaments) && filaments.length) {
-    let cost = 0;
-    let grams = 0;
-    for (const f of filaments) {
-      const g = num(f.used_grams) ?? 0;
-      grams += g;
-      cost += (g / 1000) * rateForFilament(f.type, f.color);
-    }
-    materialCost = Math.round(cost);
-    if (filamentGrams == null) filamentGrams = Math.round(grams * 100) / 100;
-  } else if (filamentGrams != null) {
-    const rate = rateForFilament(file.filament_type, file.filament_color);
-    if (rate) materialCost = Math.round((filamentGrams / 1000) * rate);
-  }
-
-  // Not ready yet (Bambuddy still slicing) — skip, retry next cycle.
-  if (printMinutes == null && filamentGrams == null && materialCost == null) {
-    log(`model: stats for ${m.id} ikke klar endnu`);
-    return;
-  }
-
-  await shop("/api/sync/models/stats", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ productId: m.id, printMinutes, filamentGrams, materialCost }),
-  });
-  log(`model: stats skrevet for ${m.id} (tid=${printMinutes}min, gram=${filamentGrams}, pris=${materialCost}øre)`);
-}
-
-// Cost/kg (øre) for a given filament type+colour, most specific match first:
-// material+colour → material → overall average → configured fallback.
-function rateForFilament(type, color) {
-  const hex = color ? normHex(color) : null;
-  if (type && hex) {
-    const exact = syncedSpools.find((s) => s.material === type && s.colorHex.toUpperCase() === hex.toUpperCase());
-    if (exact) return exact.costPerKg;
-  }
-  if (type && costPerKgByMaterial[type]) return costPerKgByMaterial[type];
-  const vals = Object.values(costPerKgByMaterial);
-  if (vals.length) return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-  return cfg.fallbackCostPerKg || 0;
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────

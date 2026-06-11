@@ -46,4 +46,5 @@ services:
       BAMBUDDY_FOLDERS_PATH: "/api/v1/library/folders/"
       BAMBUDDY_PROJECTS_PATH: "/api/v1/projects/"
       BAMBUDDY_PRINTERS_PATH: "/api/v1/printers/"
+      BAMBUDDY_ARCHIVES_PATH: "/api/v1/archives/"
       BAMBUDDY_UPLOAD_FIELD: "file"

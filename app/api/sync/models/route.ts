@@ -49,16 +49,18 @@ export async function GET(req: NextRequest) {
       downloadPath: p.modelFile ? `/api/sync/models/${p.id}?which=project` : null,
     }));
 
-  // Legacy file-detail stats path: products with a Bambuddy id but no Project.
-  const awaitingStats = products
-    .filter((p) => !p.bambuddy?.projectId && p.bambuddyId && statsIncomplete(p))
-    .map((p) => ({ id: p.id, bambuddyId: p.bambuddyId }));
+  // Products whose sliced file lives in Bambuddy: re-read the library file +
+  // its archives (real prints) every cycle for authoritative stats and history.
+  // No Bambuddy Project needed — we match archives to the file by hash/name.
+  const withFiles = products
+    .filter((p) => p.bambuddy?.printFileId || p.bambuddyId)
+    .map((p) => ({
+      id: p.id,
+      fileId: p.bambuddy?.printFileId || p.bambuddyId,
+      // Whether the product still lacks complete estimate stats (so the sidecar
+      // can backfill from the sliced file detail if no real print exists yet).
+      needEstimate: statsIncomplete(p),
+    }));
 
-  // Project-based products: re-read archives every cycle for authoritative stats
-  // (real prints override estimates) + aggregated print history.
-  const projects = products
-    .filter((p) => p.bambuddy?.projectId)
-    .map((p) => ({ id: p.id, projectId: p.bambuddy!.projectId }));
-
-  return NextResponse.json({ toUpload, awaitingStats, projects });
+  return NextResponse.json({ toUpload, withFiles });
 }
