@@ -1,52 +1,49 @@
-# Portainer stack for the printokay sync-agent (Synology NAS / home server).
+# Portainer stack for the printokay sync-agent (Synology NAS).
 #
-# Deploy via Portainer git-stack:
-#   Portainer → Stacks → Add stack → Git repository
-#   Repository URL:  https://github.com/Dokport/printokay
-#   Compose path:    sync-agent/docker-compose.yml
-#   Activate webhooks (auto-pull on push): yes
-#
-# Set ALL environment variables in Portainer's "Environment variables" UI —
-# never commit secrets to git. After changing env vars, click "Update the stack".
-# After a code change is pushed to main, click "Pull and redeploy" (or use webhook).
-#
-# Bambuddy runs in network_mode: host, so we run the sidecar in host mode too
-# and reach Bambuddy at 127.0.0.1 on its port (default 8109). The sidecar only
-# makes outbound connections, so host mode is safe. No ports are published.
+# Koden ligger som en volume-mount på NAS'en — ingen Docker-build.
+# Opdatering af sidecar:
+#   1. Kopiér ny index.js til /volume2/docker_ssd/printokay-sync/ på NAS'en
+#      (SSH: wget -O /volume2/docker_ssd/printokay-sync/index.js \
+#        https://raw.githubusercontent.com/Dokport/printokay/main/sync-agent/index.js)
+#   2. Portainer → Containers → printokay-sync → Restart
 
 services:
   sync-agent:
-    build: .
+    image: node:20-alpine
+    container_name: printokay-sync
     restart: unless-stopped
     network_mode: host
+    working_dir: /app
+    volumes:
+      - /volume2/docker_ssd/printokay-sync:/app:ro
+    command: ["node", "index.js"]
     environment:
       # ── Required ────────────────────────────────────────────────────────────
-      BAMBUDDY_API_KEY: ${BAMBUDDY_API_KEY}
-      SHOP_URL: ${SHOP_URL}                   # https://printokay.vercel.app
-      SHOP_SYNC_TOKEN: ${SHOP_SYNC_TOKEN}
+      BAMBUDDY_URL: "http://127.0.0.1:8109"
+      BAMBUDDY_API_KEY: "SKIFT_MIG"
+      SHOP_URL: "https://www.printokay.dk"
+      SHOP_SYNC_TOKEN: "SKIFT_MIG"
 
       # ── Optional ────────────────────────────────────────────────────────────
-      BAMBUDDY_URL: ${BAMBUDDY_URL:-http://127.0.0.1:8109}
-      SYNC_INTERVAL: ${SYNC_INTERVAL:-600}    # seconds between runs
+      SYNC_INTERVAL: "600"
 
-      # Default printer for "send to print" when admin doesn't pick one.
-      # Find the id in Bambuddy → Printers. Leave blank to require selection.
-      DEFAULT_PRINTER_ID: ${DEFAULT_PRINTER_ID:-}
+      # Standard-printer til "send til print" fra admin (find id i Bambuddy → Printers).
+      DEFAULT_PRINTER_ID: ""
 
-      # Bambuddy library folder name for all shop products (default: printOKAY).
-      BAMBUDDY_ROOT_FOLDER: ${BAMBUDDY_ROOT_FOLDER:-printOKAY}
+      # Bambuddy library-mappe alle produkter lægges under.
+      BAMBUDDY_ROOT_FOLDER: "printOKAY"
 
-      # Archive cost unit: Bambuddy stores cost in kr; shop uses øre (×100).
-      BAMBUDDY_COST_TO_OERE: ${BAMBUDDY_COST_TO_OERE:-100}
+      # archive.cost er i kr → øre (×100). Ændr kun hvis Bambuddy gemmer øre direkte.
+      BAMBUDDY_COST_TO_OERE: "100"
 
-      # Fallback material cost (øre/kg) if no spool has a price set. 0 = skip.
-      FALLBACK_COST_PER_KG_ORE: ${FALLBACK_COST_PER_KG_ORE:-0}
+      # Materialepris-fallback i øre/kg (bruges hvis ingen spole har en pris). 0 = spring over.
+      FALLBACK_COST_PER_KG_ORE: "0"
 
-      # ── Path overrides (only needed if Bambuddy changes its API paths) ──────
-      BAMBUDDY_SPOOLS_PATH: ${BAMBUDDY_SPOOLS_PATH:-/api/v1/inventory/spools}
-      BAMBUDDY_UPLOAD_PATH: ${BAMBUDDY_UPLOAD_PATH:-/api/v1/library/files}
-      BAMBUDDY_FILES_PATH: ${BAMBUDDY_FILES_PATH:-/api/v1/library/files}
-      BAMBUDDY_FOLDERS_PATH: ${BAMBUDDY_FOLDERS_PATH:-/api/v1/library/folders/}
-      BAMBUDDY_PROJECTS_PATH: ${BAMBUDDY_PROJECTS_PATH:-/api/v1/projects/}
-      BAMBUDDY_PRINTERS_PATH: ${BAMBUDDY_PRINTERS_PATH:-/api/v1/printers/}
-      BAMBUDDY_UPLOAD_FIELD: ${BAMBUDDY_UPLOAD_FIELD:-file}
+      # ── Bambuddy API-stier (ret kun hvis Bambuddy skifter paths) ────────────
+      BAMBUDDY_SPOOLS_PATH: "/api/v1/inventory/spools"
+      BAMBUDDY_UPLOAD_PATH: "/api/v1/library/files"
+      BAMBUDDY_FILES_PATH: "/api/v1/library/files"
+      BAMBUDDY_FOLDERS_PATH: "/api/v1/library/folders/"
+      BAMBUDDY_PROJECTS_PATH: "/api/v1/projects/"
+      BAMBUDDY_PRINTERS_PATH: "/api/v1/printers/"
+      BAMBUDDY_UPLOAD_FIELD: "file"
