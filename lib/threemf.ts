@@ -92,6 +92,25 @@ function normHex(c: string): string {
 }
 
 /**
+ * Bambu/Prusa store per-triangle MMU painting in `paint_color` as a bit-packed
+ * subdivision tree, NOT a plain colour id:
+ *  - a triangle painted one solid colour gets a SHORT code ("4", "8", "1C", …)
+ *  - a triangle straddling a colour boundary is subdivided and gets a LONG,
+ *    near-unique encoded string ("441C443443", …)
+ *
+ * A model can therefore have only a handful of real colours but hundreds of
+ * distinct boundary codes (894 for this 4-colour hedgehog). Grouping by the raw
+ * string explodes into bogus zones. We instead treat short codes as solid colours
+ * and long codes as boundaries (folded into the dominant colour — a thin seam, so
+ * the visual cost is negligible while the colour *count* is correct).
+ *
+ * Rather than decode the (sparse, AMS-slot-dependent) absolute extruder number, we
+ * rank the solid codes that actually appear and map them DENSELY onto the model's
+ * filament list, so N painted colours always yield exactly N zones in file order.
+ */
+const isSolidPaintCode = (c: string) => c.length <= 2; // boundary/split codes are longer
+
+/**
  * The model's intended filament colours, in slot order. Bambu stores them in
  * `project_settings.config` (`filament_colour`), or older sliced exports list
  * them in `slice_info.config` (`<filament … color="…">`).
@@ -343,7 +362,15 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
   }
 
   const positions: number[] = [];
-  const zoneMap = new Map<string, number[]>();
+  // First pass: collect every triangle with a raw "colour value":
+  //  - painted solid (short code)  → the code's numeric value
+  //  - unpainted                   → 0 (the base filament) when the mesh uses paint;
+  //                                  else the object's extruder index (per-object
+  //                                  multi-colour models that paint via extruder)
+  //  - boundary/split (long code)  → null, folded into the dominant colour later
+  type Tri = { a: number; b: number; c: number; value: number | null };
+  const tris: Tri[] = [];
+  let meshUsesPaint = false;
 
   for (const { meshXml, matrix, extruder } of placements) {
     // Vertices for THIS mesh start at this offset in the combined buffer.
@@ -361,40 +388,55 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
       positions.push(Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000, Math.round(z * 1000) / 1000);
     }
 
-    const tris = meshXml.match(/<triangle\b[^>]*\/?>/g) ?? [];
-    for (const t of tris) {
+    const tlist = meshXml.match(/<triangle\b[^>]*\/?>/g) ?? [];
+    for (const t of tlist) {
       const v1 = parseInt(attr(t, "v1") ?? "", 10);
       const v2 = parseInt(attr(t, "v2") ?? "", 10);
       const v3 = parseInt(attr(t, "v3") ?? "", 10);
       if (Number.isNaN(v1) || Number.isNaN(v2) || Number.isNaN(v3)) continue;
-      // Zone = per-triangle paint colour if present, else the object's extruder
-      // (so multi-part / per-object multi-colour models split into zones too).
-      const key = attr(t, "paint_color") ?? `e${extruder}`;
-      let arr = zoneMap.get(key);
-      if (!arr) zoneMap.set(key, (arr = []));
-      arr.push(baseIndex + v1, baseIndex + v2, baseIndex + v3);
+      const pc = attr(t, "paint_color");
+      let value: number | null;
+      if (pc) {
+        meshUsesPaint = true;
+        value = isSolidPaintCode(pc) ? parseInt(pc, 16) : null; // null = boundary
+      } else {
+        // No per-triangle paint: extruder 1 (base) → 0, else the object's extruder.
+        value = extruder > 1 ? extruder - 1 : 0;
+      }
+      tris.push({ a: baseIndex + v1, b: baseIndex + v2, c: baseIndex + v3, value });
     }
   }
+  void meshUsesPaint; // (unpainted triangles already map to base filament value 0)
 
-  // Map each zone to a filament-colour index:
-  //  - extruder zones ("e2") → that extruder (index = N-1)
-  //  - paint zones → by their sorted order among paint zones
+  // Rank the distinct real colour values and map them DENSELY onto 0,1,2,… so N
+  // painted colours become exactly N zones, in ascending code order (which matches
+  // filament order: 0 < "4" < "8" < "1C" < "2C" …).
+  const present = [...new Set(tris.map((t) => t.value).filter((v): v is number => v != null))]
+    .sort((a, b) => a - b);
+  const indexOf = new Map(present.map((v, i) => [v, i]));
+
+  // Dominant colour = the index covering the most triangles. Boundary triangles
+  // (value === null) fold into it, so we never spawn a spurious zone for the seam.
+  const counts = new Map<number, number>();
+  for (const t of tris) if (t.value != null) {
+    const ci = indexOf.get(t.value)!;
+    counts.set(ci, (counts.get(ci) ?? 0) + 1);
+  }
+  let dominant = 0, bestCount = -1;
+  for (const [ci, n] of counts) if (n > bestCount) { bestCount = n; dominant = ci; }
+
+  const zoneByIndex = new Map<number, number[]>();
+  for (const t of tris) {
+    const ci = t.value != null ? indexOf.get(t.value)! : dominant;
+    let arr = zoneByIndex.get(ci);
+    if (!arr) zoneByIndex.set(ci, (arr = []));
+    arr.push(t.a, t.b, t.c);
+  }
+
   const modelColors = extractModelColors(files);
-  const paintKeys = [...zoneMap.keys()]
-    .filter((k) => !/^e\d+$/.test(k) && k !== "default")
-    .sort((a, b) => (parseInt(a, 16) || 0) - (parseInt(b, 16) || 0));
-  const paintOrder = new Map(paintKeys.map((k, i) => [k, i]));
-  const colorIndex = (key: string): number => {
-    const em = key.match(/^e(\d+)$/);
-    if (em) return Number(em[1]) - 1;
-    if (key === "default") return 0;
-    return paintOrder.get(key) ?? 0;
-  };
-
-  const zones: MeshZone[] = [...zoneMap.entries()]
-    .map(([key, indices]) => ({ key, indices, ci: colorIndex(key) }))
-    .sort((a, b) => a.ci - b.ci)
-    .map(({ key, indices, ci }) => ({ key, indices, color: modelColors[ci] }));
+  const zones: MeshZone[] = [...zoneByIndex.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([ci, indices]) => ({ key: `c${ci}`, indices, color: modelColors[ci] }));
 
   return { positions, zones };
 }
