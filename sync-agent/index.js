@@ -28,7 +28,11 @@ const cfg = {
   spoolsPath: process.env.BAMBUDDY_SPOOLS_PATH || "/api/v1/inventory/spools",
   uploadPath: process.env.BAMBUDDY_UPLOAD_PATH || "/api/v1/library/files",
   filesPath: process.env.BAMBUDDY_FILES_PATH || "/api/v1/library/files",
+  foldersPath: process.env.BAMBUDDY_FOLDERS_PATH || "/api/v1/library/folders/",
+  projectsPath: process.env.BAMBUDDY_PROJECTS_PATH || "/api/v1/projects/",
   uploadField: process.env.BAMBUDDY_UPLOAD_FIELD || "file",
+  // Top-level Bambuddy folder all shop products live under.
+  rootFolder: process.env.BAMBUDDY_ROOT_FOLDER || "printOKAY",
 
   // Fallback material-cost rate (øre per kg) if neither the file API nor the
   // synced spool carries a cost. 0 = skip cost when unknown.
@@ -129,6 +133,7 @@ function mapSpool(s) {
 
 // ── Flow 2: models shop → Bambuddy, then stats back ─────────────────────────
 async function syncModels() {
+  folderCache.clear(); // re-resolve folders each run (they may change externally)
   const { toUpload, awaitingStats } = await shop("/api/sync/models").then((r) => r.json());
 
   for (const m of toUpload || []) {
@@ -148,24 +153,95 @@ async function syncModels() {
   }
 }
 
+// Create one Bambuddy Project per shop product, with a linked library folder
+// printOKAY/<Kategori>/<Produkt> holding BOTH the project and sliced files.
+// Bambuddy then becomes the single source of truth for this product's prints.
 async function uploadModel(m) {
-  // Download the model file from the shop.
-  const fileRes = await shop(m.downloadPath);
-  const buf = Buffer.from(await fileRes.arrayBuffer());
-  const filename = (m.name || "model").replace(/[^a-zA-Z0-9._-]/g, "_") + guessExt(fileRes);
+  const safe = (m.name || "model").replace(/[^a-zA-Z0-9æøåÆØÅ._ -]/g, "_").trim() || "model";
+  const shopLink = `${cfg.shopUrl}/#${m.id}`;
 
-  // Upload into Bambuddy's library.
-  const fd = new FormData();
-  fd.append(cfg.uploadField, new Blob([buf]), filename);
-  const up = await bam(cfg.uploadPath, { method: "POST", body: fd }).then((r) => r.json());
-  const bambuddyId = String(up.id ?? up.file_id ?? up.fileId ?? up.uuid ?? "");
+  // 1. Folder hierarchy: printOKAY / <Kategori>
+  const rootFolder = await ensureFolder(cfg.rootFolder, null);
+  const categoryName = (m.category || "Ukategoriseret").trim();
+  const categoryFolder = await ensureFolder(categoryName, rootFolder.id);
+
+  // 2. A Project to group all of this product's prints (notes link back to shop).
+  const project = await createProject({
+    name: safe,
+    notes: `Shop-produkt: ${shopLink}\nKategori: ${categoryName}`,
+  });
+
+  // 3. The product's own folder, linked to the project.
+  const productFolder = await ensureFolder(safe, categoryFolder.id, project.id);
+
+  // 4. Upload both files into the product folder.
+  let projectFileId, printFileId;
+  if (m.projectPath) {
+    projectFileId = await uploadFileFromShop(m.projectPath, `${safe} - projekt.3mf`, productFolder.id);
+  }
+  if (m.printPath) {
+    printFileId = await uploadFileFromShop(m.printPath, `${safe} - print.gcode.3mf`, productFolder.id);
+  }
 
   await shop("/api/sync/models/done", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ productId: m.id, bambuddyId }),
+    body: JSON.stringify({
+      productId: m.id,
+      bambuddy: { projectId: project.id, folderId: productFolder.id, projectFileId, printFileId },
+    }),
   });
-  log(`model: "${m.name}" uploadet til Bambuddy (id=${bambuddyId || "?"})`);
+  log(
+    `model: "${m.name}" → Bambuddy project=${project.id}, folder=${productFolder.id}, ` +
+      `projekt=${projectFileId || "—"}, print=${printFileId || "—"}`
+  );
+}
+
+// Download a file from the shop and upload it into a Bambuddy folder. Returns id.
+async function uploadFileFromShop(downloadPath, filename, folderId) {
+  const res = await shop(downloadPath);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const fd = new FormData();
+  fd.append(cfg.uploadField, new Blob([buf]), filename);
+  const path = `${cfg.uploadPath}?folder_id=${encodeURIComponent(folderId)}`;
+  const up = await bam(path, { method: "POST", body: fd }).then((r) => r.json());
+  return String(up.id ?? up.file_id ?? up.fileId ?? up.uuid ?? "");
+}
+
+// Find a folder by name (+ parent) or create it. Caches within a sync run.
+const folderCache = new Map();
+async function ensureFolder(name, parentId, projectId) {
+  const key = `${parentId ?? "root"}/${name}`;
+  if (folderCache.has(key)) return folderCache.get(key);
+
+  const all = await bam(cfg.foldersPath).then((r) => r.json());
+  const list = Array.isArray(all) ? all : all.folders || all.items || all.data || [];
+  const norm = (v) => (v == null ? null : String(v));
+  let folder = list.find(
+    (f) => f.name === name && norm(f.parent_id) === norm(parentId)
+  );
+
+  if (!folder) {
+    folder = await bam(cfg.foldersPath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        ...(parentId != null ? { parent_id: Number(parentId) } : {}),
+        ...(projectId != null ? { project_id: Number(projectId) } : {}),
+      }),
+    }).then((r) => r.json());
+  }
+  folderCache.set(key, folder);
+  return folder;
+}
+
+async function createProject({ name, notes }) {
+  return bam(cfg.projectsPath, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, notes }),
+  }).then((r) => r.json());
 }
 
 async function fetchStats(m) {
