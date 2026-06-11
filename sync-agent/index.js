@@ -378,7 +378,18 @@ async function ensureFolder(name, parentId, projectId) {
   if (folderCache.has(key)) return folderCache.get(key);
 
   const all = await bam(cfg.foldersPath).then((r) => r.json());
-  const list = Array.isArray(all) ? all : all.folders || all.items || all.data || [];
+  const tree = Array.isArray(all) ? all : all.folders || all.items || all.data || [];
+  // GET /library/folders returns a TREE (FolderTreeItem[] with `children`), not a
+  // flat list — so we must flatten before searching, or nested category folders
+  // are never found and get re-created on every product (lots of empty dupes).
+  const list = [];
+  const walk = (nodes) => {
+    for (const n of nodes || []) {
+      list.push(n);
+      if (Array.isArray(n.children)) walk(n.children);
+    }
+  };
+  walk(tree);
   const norm = (v) => (v == null ? null : String(v));
   let folder = list.find(
     (f) => f.name === name && norm(f.parent_id) === norm(parentId)
