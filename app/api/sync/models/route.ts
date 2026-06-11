@@ -60,6 +60,10 @@ export async function GET(req: NextRequest) {
       // Whether the product still lacks complete estimate stats (so the sidecar
       // can backfill from the sliced file detail if no real print exists yet).
       needEstimate: statsIncomplete(p),
+      // Current known print count — the sidecar skips the (Blob-writing) stats
+      // callback entirely when the real count hasn't changed.
+      knownCount: p.printStats?.count ?? 0,
+      hasActual: p.statsSource === "actual",
     }));
 
   // Products renamed/recategorised in the shop after syncing: the sidecar renames

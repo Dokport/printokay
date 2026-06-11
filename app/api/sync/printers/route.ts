@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { Printer } from "@/lib/products";
-import { writeJsonFile } from "@/lib/storage";
+import { readJsonFile, writeJsonFile } from "@/lib/storage";
 import { isSyncAuthed } from "@/lib/isSyncAuthed";
 
 export async function POST(req: NextRequest) {
@@ -26,6 +26,12 @@ export async function POST(req: NextRequest) {
       ...(p.model ? { model: String(p.model) } : {}),
       ...(p.isActive != null ? { isActive: !!p.isActive } : {}),
     }));
+
+  // Skip the Blob write when the printer list is unchanged (synced every cycle).
+  const cur = await readJsonFile<Printer[]>("printers.json", []);
+  if (JSON.stringify(cur) === JSON.stringify(clean)) {
+    return NextResponse.json({ ok: true, count: clean.length, unchanged: true });
+  }
 
   await writeJsonFile("printers.json", clean);
   return NextResponse.json({ ok: true, count: clean.length });

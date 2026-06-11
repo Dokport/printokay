@@ -166,6 +166,38 @@ async function syncModels() {
       err(`file stats (${m.id}):`, e.message);
     }
   }
+
+  // Clean up empty duplicate folders left by the earlier tree-search bug.
+  try { await cleanupEmptyFolders(); } catch (e) { err("folder cleanup:", e.message); }
+}
+
+// Delete empty stray folders under the printOKAY root (file_count 0, no children).
+// Category folders always contain product subfolders and product folders always
+// contain files, so any empty folder under the root is a duplicate to remove.
+async function cleanupEmptyFolders() {
+  const all = await bam(cfg.foldersPath).then((r) => r.json());
+  const tree = Array.isArray(all) ? all : all.folders || all.items || all.data || [];
+  const roots = tree.filter((f) => f.name === cfg.rootFolder);
+
+  let removed = 0;
+  const removeEmpty = async (nodes) => {
+    for (const n of nodes || []) {
+      const children = Array.isArray(n.children) ? n.children : [];
+      // Depth-first so a parent that becomes empty after pruning is also caught.
+      await removeEmpty(children);
+      const stillHasChildren = children.some((c) => !c._deleted);
+      if (!stillHasChildren && (num(n.file_count) ?? 0) === 0) {
+        try {
+          await bam(`${cfg.foldersPath}${n.id}`, { method: "DELETE" });
+          n._deleted = true;
+          removed++;
+        } catch { /* ignore, retry next run */ }
+      }
+    }
+  };
+  // Only prune *inside* each printOKAY root, never the root itself.
+  for (const root of roots) await removeEmpty(root.children || []);
+  if (removed) log(`folder cleanup: ${removed} tomme mapper slettet`);
 }
 
 const isSuccessfulPrint = (a) => {
@@ -213,6 +245,12 @@ async function fetchFileStats(m) {
   // Fall back to the file's own counters if archive matching found nothing.
   if (count === 0 && num(file.print_count)) count = num(file.print_count);
   if (!lastPrintedAt && file.last_printed_at) lastPrintedAt = file.last_printed_at;
+
+  // Blob-saving: if the real print count hasn't changed and the product already
+  // has its stats, there's nothing new to write — skip the shop callbacks.
+  const countChanged = count !== (num(m.knownCount) ?? 0);
+  if (!countChanged && m.hasActual) return;
+  if (!countChanged && !m.needEstimate && count === 0) return;
 
   if (count > 0 || lastPrintedAt) {
     await shop("/api/sync/models/history", {

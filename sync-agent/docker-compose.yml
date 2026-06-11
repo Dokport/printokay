@@ -25,7 +25,9 @@ services:
       SHOP_SYNC_TOKEN: "SKIFT_MIG"
 
       # ── Optional ────────────────────────────────────────────────────────────
-      SYNC_INTERVAL: "600"
+      # Sekunder mellem kørsler. 1800 (30 min) holder Vercel Blob-forbruget nede;
+      # stats/lager behøver ikke være friskere end det.
+      SYNC_INTERVAL: "1800"
 
       # Standard-printer til "send til print" fra admin (find id i Bambuddy → Printers).
       DEFAULT_PRINTER_ID: ""

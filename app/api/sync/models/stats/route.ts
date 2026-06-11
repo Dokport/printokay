@@ -41,14 +41,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "actual stats present" });
   }
 
-  products[idx] = {
-    ...products[idx],
+  const cur = products[idx];
+  const next = {
+    ...cur,
     ...(printMinutes != null ? { printMinutes: Math.round(Number(printMinutes)) } : {}),
     ...(filamentGrams != null ? { filamentGrams: Number(filamentGrams) } : {}),
     ...(materialCost != null ? { materialCost: Math.round(Number(materialCost)) } : {}),
     statsSource: incoming,
-    bambuddyStatsAt: new Date().toISOString(),
   };
+
+  // Skip the Blob write when the actual values didn't change (the sidecar may
+  // re-post identical stats every cycle) — saves Vercel Blob operations.
+  const unchanged =
+    next.printMinutes === cur.printMinutes &&
+    next.filamentGrams === cur.filamentGrams &&
+    next.materialCost === cur.materialCost &&
+    next.statsSource === cur.statsSource;
+  if (unchanged) {
+    return NextResponse.json({ ok: true, unchanged: true });
+  }
+
+  products[idx] = { ...next, bambuddyStatsAt: new Date().toISOString() };
 
   await writeJsonFile("products.json", products);
   return NextResponse.json({ ok: true });

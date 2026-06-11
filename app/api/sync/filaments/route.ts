@@ -58,6 +58,19 @@ export async function POST(req: NextRequest) {
     });
 
   const filaments = [...manual, ...synced];
+
+  // Skip the Blob write when the filament list is unchanged (synced every cycle,
+  // and remaining grams rarely change) — saves Vercel Blob operations.
+  if (JSON.stringify(existing) === JSON.stringify(filaments)) {
+    return NextResponse.json({
+      ok: true,
+      manual: manual.length,
+      synced: synced.length,
+      total: filaments.length,
+      unchanged: true,
+    });
+  }
+
   await writeJsonFile("settings.json", { ...settings, filaments });
 
   return NextResponse.json({

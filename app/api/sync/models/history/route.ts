@@ -35,6 +35,12 @@ export async function POST(req: NextRequest) {
     ...(printStats.lastPrintedAt ? { lastPrintedAt: String(printStats.lastPrintedAt) } : {}),
   };
 
+  // Skip the Blob write when nothing changed (the sidecar may re-post identical
+  // history every cycle) — saves Vercel Blob operations.
+  if (JSON.stringify(products[idx].printStats) === JSON.stringify(stats)) {
+    return NextResponse.json({ ok: true, unchanged: true });
+  }
+
   products[idx] = { ...products[idx], printStats: stats };
 
   await writeJsonFile("products.json", products);
