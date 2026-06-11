@@ -5,7 +5,7 @@ import { Product, formatPrice, formatPrintTime, MATERIALS } from "@/lib/products
 import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_THEMES } from "@/lib/settings";
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
 import type { Order } from "@/lib/orders";
-import type { ColorZone } from "@/lib/products";
+import type { ColorZone, Printer, PrintRequest } from "@/lib/products";
 import { parseThreeMf, parseThreeMfMeta, parseSlicedStats } from "@/lib/threemf";
 import { upload } from "@vercel/blob/client";
 import ZoneMapper from "@/components/ZoneMapper";
@@ -59,6 +59,10 @@ export default function AdminPage() {
 
   // Products state
   const [products, setProducts] = useState<Product[]>([]);
+  const [printers, setPrinters] = useState<Printer[]>([]);
+  const [printReqs, setPrintReqs] = useState<PrintRequest[]>([]);
+  const [printPicks, setPrintPicks] = useState<Record<string, string>>({}); // productId → printerId
+  const [sendingPrint, setSendingPrint] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -108,6 +112,8 @@ export default function AdminPage() {
     if (!loggedIn) return;
     fetch("/api/products").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setProducts(d); });
     fetch("/api/settings").then((r) => r.json()).then((d) => { if (d.siteName) setSettings(d); });
+    authedFetch("/api/printers").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setPrinters(d); }).catch(() => {});
+    authedFetch("/api/print-requests").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setPrintReqs(d); }).catch(() => {});
   }, [loggedIn]);
 
   useEffect(() => {
@@ -394,6 +400,31 @@ export default function AdminPage() {
     setProducts((prev) => prev.filter((p) => p.id !== id));
   }
 
+  async function sendToPrinter(product: Product) {
+    const printerId = printPicks[product.id] || printers[0]?.id || "";
+    const printerName = printers.find((p) => p.id === printerId)?.name || "standardprinteren";
+    if (!confirm(`Send "${product.name}" til ${printerName}?`)) return;
+    setSendingPrint(product.id);
+    try {
+      const res = await authedFetch("/api/print-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: product.id, printerId: printerId || undefined, quantity: 1 }),
+      });
+      if (res.ok) {
+        const reqs = await authedFetch("/api/print-requests").then((r) => r.json());
+        if (Array.isArray(reqs)) setPrintReqs(reqs);
+        setProductMsg(`🖨️ "${product.name}" sendt til print — sidecaren starter det snart.`);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setProductMsg(`⚠ ${d.error || "Kunne ikke sende til print."}`);
+      }
+      setTimeout(() => setProductMsg(""), 4000);
+    } finally {
+      setSendingPrint(null);
+    }
+  }
+
   async function handleSettingsSave(e: React.FormEvent) {
     e.preventDefault(); setSettingsSaving(true); setSettingsMsg("");
     const res = await authedFetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(settings) });
@@ -674,13 +705,31 @@ export default function AdminPage() {
                         className="text-xs text-red-400 hover:text-red-600">Fjern</button>
                     </>
                   )}
-                  {/* Sync status (only meaningful when editing an existing product) */}
+                  {/* Sync status + print history (only when editing an existing product) */}
                   {editingId && (() => {
                     const ep = products.find((p) => p.id === editingId);
-                    if (!ep?.modelFile) return null;
-                    if (ep.bambuddyStatsAt) return <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✓ Stats hentet</span>;
-                    if (ep.modelSyncedAt) return <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">✓ I Bambuddy</span>;
-                    return <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">⏳ Afventer Bambuddy</span>;
+                    if (!ep || (!ep.modelFile && !ep.printFile)) return null;
+                    const synced = ep.bambuddy?.syncedAt || ep.modelSyncedAt;
+                    const st = ep.printStats;
+                    return (
+                      <>
+                        {ep.statsSource === "actual" ? (
+                          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✓ Faktiske stats</span>
+                        ) : synced ? (
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">✓ I Bambuddy</span>
+                        ) : (
+                          <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">⏳ Afventer Bambuddy</span>
+                        )}
+                        {st && st.count > 0 && (
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full font-medium">
+                            🖨️ Printet {st.count}×
+                            {st.totalGrams != null ? ` · ${st.totalGrams.toFixed(0)} g` : ""}
+                            {st.totalCost != null ? ` · ${(st.totalCost / 100).toFixed(0)} kr` : ""}
+                            {st.lastPrintedAt ? ` · sidst ${new Date(st.lastPrintedAt).toLocaleDateString("da-DK")}` : ""}
+                          </span>
+                        )}
+                      </>
+                    );
                   })()}
                 </div>
               </div>
@@ -854,6 +903,39 @@ export default function AdminPage() {
                     className="text-gray-400 hover:text-blue-500 transition-colors" title="Åbn 3D model">
                     🔗
                   </a>
+                )}
+                {/* Latest print-request status for this product */}
+                {(() => {
+                  const last = printReqs.find((r) => r.productId === p.id);
+                  if (!last) return null;
+                  if (last.status === "open") return <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">⏳ I kø</span>;
+                  if (last.status === "failed") return <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-full font-medium" title={last.error}>⚠ Print fejlede</span>;
+                  return <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">✓ Sendt til print</span>;
+                })()}
+                {/* Send-to-printer: only when the sliced file is in Bambuddy */}
+                {p.bambuddy?.printFileId && (
+                  <div className="flex items-center gap-1.5">
+                    {printers.length > 1 && (
+                      <select
+                        value={printPicks[p.id] ?? printers[0]?.id ?? ""}
+                        onChange={(e) => setPrintPicks((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                        title="Vælg printer"
+                      >
+                        {printers.map((pr) => (
+                          <option key={pr.id} value={pr.id}>{pr.name}</option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      onClick={() => sendToPrinter(p)}
+                      disabled={sendingPrint === p.id}
+                      className="text-xs bg-purple-50 hover:bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full font-medium disabled:opacity-50"
+                      title="Print den slicede fil direkte fra Bambuddy"
+                    >
+                      {sendingPrint === p.id ? "Sender…" : "🖨️ Print"}
+                    </button>
+                  </div>
                 )}
                 <button onClick={() => startEdit(p)} className="text-blue-400 hover:text-blue-600 text-sm font-medium">Rediger</button>
                 <button onClick={() => handleDelete(p.id, p.name)} className="text-red-400 hover:text-red-600 text-lg" aria-label="Slet">✕</button>

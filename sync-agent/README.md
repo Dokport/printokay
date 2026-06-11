@@ -37,6 +37,12 @@ sekund og er idempotent.
 | `BAMBUDDY_UPLOAD_PATH` | nej | default `/api/v1/library/files` (POST, multipart) |
 | `BAMBUDDY_FILES_PATH` | nej | default `/api/v1/library/files` (detalje: `/{id}`) |
 | `BAMBUDDY_UPLOAD_FIELD` | nej | multipart-feltnavn (default `file`) |
+| `BAMBUDDY_FOLDERS_PATH` | nej | default `/api/v1/library/folders/` |
+| `BAMBUDDY_PROJECTS_PATH` | nej | default `/api/v1/projects/` |
+| `BAMBUDDY_PRINTERS_PATH` | nej | default `/api/v1/printers/` |
+| `BAMBUDDY_ROOT_FOLDER` | nej | top-mappe alle produkter lægges under (default `printOKAY`) |
+| `BAMBUDDY_COST_TO_OERE` | nej | faktor fra archive-`cost` (kr) til øre (default 100) |
+| `DEFAULT_PRINTER_ID` | nej | printer brugt til "send til print" når en request ikke vælger én |
 | `FALLBACK_COST_PER_KG_ORE` | nej | kr/kg i øre brugt hvis ingen spole har en pris |
 
 ## Bekræftede Bambuddy-endpoints (fra instansens openapi.json)
@@ -51,6 +57,15 @@ sekund og er idempotent.
 - **Pris (per-materiale):** `GET /api/v1/library/files/{id}/filament-requirements` →
   per-slot `{type, color, used_grams}`. Hver matches mod en synket spole (materiale + farve)
   og ganges med dens `cost_per_kg`. Fallback: materiale-rate → gennemsnit → `FALLBACK_COST_PER_KG_ORE`.
+
+- **Project pr. produkt:** `POST /api/v1/projects/` (`name`, `notes`) → container for produktets
+  prints. En linket mappe oprettes med `POST /api/v1/library/folders/` (`name`, `parent_id`,
+  `project_id`); begge filer uploades med `?folder_id=<id>`. Hierarki: `printOKAY/<Kategori>/<Produkt>`.
+- **Faktiske stats + historik:** `GET /api/v1/projects/{id}/archives` → de reelle prints
+  (`status`, `actual_time_seconds`, `filament_used_grams`, `cost`, `completed_at`). Aggregeres til
+  historik og seneste vellykkede print → autoritative stats (`source="actual"`).
+- **Send til print:** `GET /api/v1/printers/` synkes til shoppen; admin vælger printer og opretter
+  en request, som sidecaren udfører med `POST /api/v1/library/files/{printFileId}/print?printer_id=<id>`.
 
 > Auth: Bambuddy bruger **`Authorization: Bearer <api-key>`** (HTTPBearer). Endpoints kræver
 > blot en gyldig API-nøgle — inventory/library er ikke gated bag de tre printer-tilladelser.
