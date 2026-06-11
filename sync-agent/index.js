@@ -67,6 +67,15 @@ const err = (...a) => console.error(new Date().toISOString(), ...a);
 let costPerKgByMaterial = {};
 let syncedSpools = []; // [{ material, colorHex, costPerKg }] with a known cost
 
+// ── Session-level state (resets on container restart) ────────────────────────
+// In-memory hashes so we skip the shop POST entirely when data hasn't changed.
+// This avoids even the Blob READ that the server-side write-guard would trigger.
+let lastSpoolsJson = null;
+let lastPrintersJson = null;
+// Products that failed rename with 403 (API key lacks folder-rename permission).
+// We warn once per session instead of spamming the log every loop.
+const renameWarned = new Set();
+
 async function bam(path, init) {
   const r = await fetch(cfg.bambuddyUrl + path, {
     ...init,
@@ -101,12 +110,18 @@ async function syncFilaments() {
     if (s.costPerKg && s.material) costPerKgByMaterial[s.material] = s.costPerKg;
   }
 
+  // Skip the shop POST (and the server-side Blob READ it triggers) when the
+  // spool list is identical to what we last sent. Resets on container restart.
+  const spoolsJson = JSON.stringify(spools);
+  if (spoolsJson === lastSpoolsJson) return; // nothing changed
+
   const res = await shop("/api/sync/filaments", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ spools }),
   }).then((r) => r.json());
 
+  lastSpoolsJson = spoolsJson;
   log(`filament: ${spools.length} spoler sendt (synced=${res.synced}, manual=${res.manual})`);
 }
 
@@ -249,7 +264,10 @@ async function fetchFileStats(m) {
   // Blob-saving: if the real print count hasn't changed and the product already
   // has its stats, there's nothing new to write — skip the shop callbacks.
   const countChanged = count !== (num(m.knownCount) ?? 0);
-  if (!countChanged && m.hasActual) return;
+  if (!countChanged && m.hasActual) {
+    log(`file: "${m.id}" — ${count} prints, uændret — springer over`);
+    return;
+  }
   if (!countChanged && !m.needEstimate && count === 0) return;
 
   if (count > 0 || lastPrintedAt) {
@@ -373,11 +391,25 @@ async function renameModel(m) {
     parentId = category.id;
   }
 
-  await bam(`${cfg.foldersPath}${m.folderId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: safe, ...(parentId != null ? { parent_id: Number(parentId) } : {}) }),
-  });
+  try {
+    await bam(`${cfg.foldersPath}${m.folderId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: safe, ...(parentId != null ? { parent_id: Number(parentId) } : {}) }),
+    });
+  } catch (e) {
+    // API keys lack folder-rename permission (Bambuddy returns 403). Log once per
+    // product per session and return silently — the id-based link still works, the
+    // Bambuddy folder just keeps its old name until an admin renames it manually.
+    if (e.message.includes("403")) {
+      if (!renameWarned.has(m.id)) {
+        log(`model rename: API-nøgle mangler mappe-rettighed i Bambuddy — "${safe}" omdøbes ikke automatisk (gøres manuelt i Bambuddy eller tilføj mappe-tilladelse til API-nøglen)`);
+        renameWarned.add(m.id);
+      }
+      return; // skip file renames + callback too
+    }
+    throw e;
+  }
 
   if (m.projectFileId) await renameFile(m.projectFileId, `${safe} - projekt.3mf`);
   if (m.printFileId) await renameFile(m.printFileId, `${safe} - print.gcode.3mf`);
@@ -495,11 +527,17 @@ async function syncPrinters() {
       isActive: p.is_active != null ? !!p.is_active : undefined,
     }));
 
+  // Skip the shop POST when the printer list hasn't changed (same as filaments).
+  const printersJson = JSON.stringify(printers);
+  if (printersJson === lastPrintersJson) return; // nothing changed
+
   await shop("/api/sync/printers", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ printers }),
   });
+
+  lastPrintersJson = printersJson;
   log(`printers: ${printers.length} synket til shop`);
 }
 
