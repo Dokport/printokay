@@ -55,6 +55,29 @@ export type PrintStats = {
   lastPrintedAt?: string; // ISO-tid for seneste print
 };
 
+// En printer synkroniseret fra Bambuddy (til admin's "send til printer"-valg).
+export type Printer = {
+  id: string;
+  name: string;
+  model?: string;
+  isActive?: boolean;
+};
+
+// En anmodning fra admin om at printe et produkts slicede fil på en printer.
+// Shoppen kan ikke nå Bambuddy direkte → sidecaren henter åbne requests og
+// kalder Bambuddys print-endpoint.
+export type PrintRequest = {
+  id: string;
+  productId: string;
+  productName?: string;
+  printerId?: string;     // valgt printer; ellers sidecarens standard
+  quantity: number;
+  status: "open" | "done" | "failed";
+  error?: string;
+  createdAt: string;
+  handledAt?: string;
+};
+
 export const MATERIALS = ["PLA", "PETG", "TPU", "ABS", "ASA", "Resin"];
 
 export function formatPrintTime(minutes: number): string {

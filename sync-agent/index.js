@@ -30,7 +30,10 @@ const cfg = {
   filesPath: process.env.BAMBUDDY_FILES_PATH || "/api/v1/library/files",
   foldersPath: process.env.BAMBUDDY_FOLDERS_PATH || "/api/v1/library/folders/",
   projectsPath: process.env.BAMBUDDY_PROJECTS_PATH || "/api/v1/projects/",
+  printersPath: process.env.BAMBUDDY_PRINTERS_PATH || "/api/v1/printers/",
   uploadField: process.env.BAMBUDDY_UPLOAD_FIELD || "file",
+  // Default printer for send-to-print when a request doesn't name one.
+  defaultPrinterId: process.env.DEFAULT_PRINTER_ID || "",
   // Bambuddy archive `cost` is in major currency units (kr); shop stores øre.
   costToOere: Number(process.env.BAMBUDDY_COST_TO_OERE || 100),
   // Top-level Bambuddy folder all shop products live under.
@@ -404,9 +407,66 @@ function guessExt(res) {
   return m ? "." + m[1].toLowerCase() : ".3mf";
 }
 
+// ── Flow 3: printers Bambuddy → shop, and send-to-print shop → Bambuddy ───────
+async function syncPrinters() {
+  const raw = await bam(cfg.printersPath).then((r) => r.json());
+  const list = Array.isArray(raw) ? raw : raw.printers || raw.items || raw.data || [];
+  const printers = list
+    .filter((p) => p && p.id != null)
+    .map((p) => ({
+      id: String(p.id),
+      name: p.name || `Printer ${p.id}`,
+      model: p.model || undefined,
+      isActive: p.is_active != null ? !!p.is_active : undefined,
+    }));
+
+  await shop("/api/sync/printers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ printers }),
+  });
+  log(`printers: ${printers.length} synket til shop`);
+}
+
+async function handlePrintRequests() {
+  const { requests } = await shop("/api/print-requests").then((r) => r.json());
+  for (const r of requests || []) {
+    try {
+      const printerId = r.printerId || cfg.defaultPrinterId;
+      if (!printerId) throw new Error("ingen printer valgt og DEFAULT_PRINTER_ID mangler");
+
+      const qty = Math.max(1, Number(r.quantity) || 1);
+      for (let i = 0; i < qty; i++) {
+        const path = `${cfg.filesPath}/${r.printFileId}/print?printer_id=${encodeURIComponent(printerId)}`;
+        await bam(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}), // defaults: bed_levelling, use_ams, etc.
+        });
+      }
+
+      await shop("/api/print-requests/done", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId: r.id, status: "done" }),
+      });
+      log(`print: request ${r.id} → printer ${printerId} (×${qty})`);
+    } catch (e) {
+      err(`print request ${r.id}:`, e.message);
+      await shop("/api/print-requests/done", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId: r.id, status: "failed", error: e.message }),
+      }).catch(() => {});
+    }
+  }
+}
+
 async function runOnce() {
   try { await syncFilaments(); } catch (e) { err("filament-sync:", e.message); }
   try { await syncModels(); } catch (e) { err("model-sync:", e.message); }
+  try { await syncPrinters(); } catch (e) { err("printer-sync:", e.message); }
+  try { await handlePrintRequests(); } catch (e) { err("print-requests:", e.message); }
 }
 
 async function main() {
