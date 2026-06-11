@@ -250,8 +250,12 @@ export default function AdminPage() {
 
       for (const file of files) {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        if (parseThreeMf(bytes).zones.length > 0) { projectBytes = bytes; projectFile = file; }
-        else if (parseSlicedStats(bytes)) { slicedBytes = bytes; slicedFile = file; }
+        // A sliced .gcode.3mf always has slice_info.config with a `prediction` key.
+        // Check this FIRST — both files pass zones.length > 0 (the slicer adds many
+        // surface-type paint_color codes), so using zones as the discriminator gives
+        // false positives (e.g. 894 "zones" on a 3-colour hedgehog sliced file).
+        if (parseSlicedStats(bytes)) { slicedBytes = bytes; slicedFile = file; }
+        else if (parseThreeMf(bytes).zones.length > 0) { projectBytes = bytes; projectFile = file; }
       }
 
       if (!projectFile && !slicedFile) throw new Error("Genkendte hverken projekt- eller sliced-fil");
