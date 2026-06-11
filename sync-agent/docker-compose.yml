@@ -1,10 +1,16 @@
-# Portainer stack for the printokay sync-agent (Synology NAS).
+# Portainer stack for the printokay sync-agent (Synology NAS / home server).
 #
-# Deploy: Portainer → Stacks → Add stack → Git repository
-#   Repo + compose path: sync-agent/docker-compose.yml
-# Set the environment variables below in Portainer's stack UI (not in git).
+# Deploy via Portainer git-stack:
+#   Portainer → Stacks → Add stack → Git repository
+#   Repository URL:  https://github.com/Dokport/printokay
+#   Compose path:    sync-agent/docker-compose.yml
+#   Activate webhooks (auto-pull on push): yes
 #
-# Bambuddy runs in `network_mode: host`, so we run the sidecar in host mode too
+# Set ALL environment variables in Portainer's "Environment variables" UI —
+# never commit secrets to git. After changing env vars, click "Update the stack".
+# After a code change is pushed to main, click "Pull and redeploy" (or use webhook).
+#
+# Bambuddy runs in network_mode: host, so we run the sidecar in host mode too
 # and reach Bambuddy at 127.0.0.1 on its port (default 8109). The sidecar only
 # makes outbound connections, so host mode is safe. No ports are published.
 
@@ -14,14 +20,33 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      BAMBUDDY_URL: ${BAMBUDDY_URL:-http://127.0.0.1:8109}
+      # ── Required ────────────────────────────────────────────────────────────
       BAMBUDDY_API_KEY: ${BAMBUDDY_API_KEY}
-      SHOP_URL: ${SHOP_URL}
+      SHOP_URL: ${SHOP_URL}                   # https://printokay.vercel.app
       SHOP_SYNC_TOKEN: ${SHOP_SYNC_TOKEN}
-      SYNC_INTERVAL: ${SYNC_INTERVAL:-600}
-      # Bambuddy paths — confirmed against the instance's openapi.json. Override only if upgraded.
+
+      # ── Optional ────────────────────────────────────────────────────────────
+      BAMBUDDY_URL: ${BAMBUDDY_URL:-http://127.0.0.1:8109}
+      SYNC_INTERVAL: ${SYNC_INTERVAL:-600}    # seconds between runs
+
+      # Default printer for "send to print" when admin doesn't pick one.
+      # Find the id in Bambuddy → Printers. Leave blank to require selection.
+      DEFAULT_PRINTER_ID: ${DEFAULT_PRINTER_ID:-}
+
+      # Bambuddy library folder name for all shop products (default: printOKAY).
+      BAMBUDDY_ROOT_FOLDER: ${BAMBUDDY_ROOT_FOLDER:-printOKAY}
+
+      # Archive cost unit: Bambuddy stores cost in kr; shop uses øre (×100).
+      BAMBUDDY_COST_TO_OERE: ${BAMBUDDY_COST_TO_OERE:-100}
+
+      # Fallback material cost (øre/kg) if no spool has a price set. 0 = skip.
+      FALLBACK_COST_PER_KG_ORE: ${FALLBACK_COST_PER_KG_ORE:-0}
+
+      # ── Path overrides (only needed if Bambuddy changes its API paths) ──────
       BAMBUDDY_SPOOLS_PATH: ${BAMBUDDY_SPOOLS_PATH:-/api/v1/inventory/spools}
       BAMBUDDY_UPLOAD_PATH: ${BAMBUDDY_UPLOAD_PATH:-/api/v1/library/files}
       BAMBUDDY_FILES_PATH: ${BAMBUDDY_FILES_PATH:-/api/v1/library/files}
+      BAMBUDDY_FOLDERS_PATH: ${BAMBUDDY_FOLDERS_PATH:-/api/v1/library/folders/}
+      BAMBUDDY_PROJECTS_PATH: ${BAMBUDDY_PROJECTS_PATH:-/api/v1/projects/}
+      BAMBUDDY_PRINTERS_PATH: ${BAMBUDDY_PRINTERS_PATH:-/api/v1/printers/}
       BAMBUDDY_UPLOAD_FIELD: ${BAMBUDDY_UPLOAD_FIELD:-file}
-      FALLBACK_COST_PER_KG_ORE: ${FALLBACK_COST_PER_KG_ORE:-0}

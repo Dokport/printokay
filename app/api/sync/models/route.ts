@@ -42,9 +42,11 @@ export async function GET(req: NextRequest) {
       category: p.category || "",
       hasProject: !!p.modelFile,
       hasPrint: !!p.printFile,
-      // Per-file download paths (the sidecar uploads both into the Project folder).
+      // Per-file download paths (new sidecar uploads both into the Project folder).
       projectPath: p.modelFile ? `/api/sync/models/${p.id}?which=project` : null,
       printPath: p.printFile ? `/api/sync/models/${p.id}?which=print` : null,
+      // Backwards compat: old sidecar used downloadPath for the project file.
+      downloadPath: p.modelFile ? `/api/sync/models/${p.id}?which=project` : null,
     }));
 
   // Legacy file-detail stats path: products with a Bambuddy id but no Project.
