@@ -46,6 +46,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const prev = products[idx];
   const newModelFile = body.modelFile !== undefined ? body.modelFile : prev.modelFile;
   const modelChanged = body.modelFile !== undefined && body.modelFile !== prev.modelFile;
+  // A new sliced print file means re-slice → re-sync to Bambuddy + new stats.
+  const newPrintFile = body.printFile !== undefined ? body.printFile : prev.printFile;
+  const printChanged = body.printFile !== undefined && body.printFile !== prev.printFile;
 
   products[idx] = {
     ...prev,
@@ -63,22 +66,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     filamentGrams: body.filamentGrams ? Number(body.filamentGrams) : prev.filamentGrams,
     materialCost: body.materialCost ? Math.round(parseFloat(body.materialCost) * 100) : prev.materialCost,
     modelFile: newModelFile,
+    printFile: newPrintFile,
     // Optional posed/light preview model for the shop's 3D view ("" clears it).
     previewModel: body.previewModel !== undefined ? (body.previewModel || undefined) : prev.previewModel,
+    // Stats sent on save (instant estimate from the sliced file).
+    ...(body.statsSource ? { statsSource: body.statsSource } : {}),
     // colorZones may be sent on save; a new model file invalidates them.
     ...(Array.isArray(body.colorZones) ? { colorZones: body.colorZones } : {}),
-    // A new model file invalidates the Bambuddy sync state, the derived
-    // production stats AND the colour-zone mapping (zones can change), so they
-    // get re-derived/re-mapped from the new file.
-    ...(modelChanged
+    // A new project file invalidates the colour-zone mapping.
+    ...(modelChanged ? { colorZones: undefined } : {}),
+    // A new sliced file (re-slice) invalidates the Bambuddy sync + derived stats,
+    // so the sidecar re-uploads and stats are re-derived from the new file.
+    ...(printChanged
       ? {
+          bambuddy: undefined,
           modelSyncedAt: undefined,
           bambuddyId: undefined,
           bambuddyStatsAt: undefined,
-          printMinutes: undefined,
-          filamentGrams: undefined,
-          materialCost: undefined,
-          colorZones: undefined,
+          printStats: undefined,
         }
       : {}),
   };

@@ -26,12 +26,33 @@ export type Product = {
   filamentGrams?: number;  // filament usage in grams — admin only
   materialCost?: number;   // material cost in DKK øre — admin only
   // ── Bambuddy-synkronisering ──
-  modelFile?: string;       // blob-sti til den fulde (multi-material) .3mf — bevares permanent
+  modelFile?: string;       // blob-sti til projekt-.3mf (mesh → 3D + colorZones)
+  printFile?: string;       // blob-sti til sliced .gcode.3mf (print + stats)
   previewModel?: string;    // valgfri poseret/let .3mf til shoppens 3D-visning (samme zoner)
-  modelSyncedAt?: string;   // ISO-tid: modellen er uploadet til Bambuddy
-  bambuddyId?: string;      // Bambuddy library-fil-id
-  bambuddyStatsAt?: string; // ISO-tid: tid/gram/pris er hentet retur fra Bambuddy
   colorZones?: ColorZone[]; // mapping af modellens paint_color-zoner → colorSlots
+  // ── Bambuddy-kobling (sat af sidecaren) ──
+  bambuddy?: BambuddyLink;
+  statsSource?: "estimate" | "actual"; // estimat fra sliced-fil vs. faktisk fra archive
+  printStats?: PrintStats;             // aggregeret print-historik fra projektets archives
+  // ── Legacy (udfases) ──
+  modelSyncedAt?: string;
+  bambuddyId?: string;
+  bambuddyStatsAt?: string;
+};
+
+export type BambuddyLink = {
+  projectId?: string;     // Bambuddy project (containeren for produktet)
+  folderId?: string;      // linket library-mappe
+  projectFileId?: string; // projekt-filens id i Bambuddy
+  printFileId?: string;   // sliced-filens id i Bambuddy (print + stats)
+  syncedAt?: string;      // ISO-tid: filer + project oprettet i Bambuddy
+};
+
+export type PrintStats = {
+  count: number;          // antal fuldførte prints
+  totalGrams?: number;    // samlet filamentforbrug
+  totalCost?: number;     // samlet pris (øre)
+  lastPrintedAt?: string; // ISO-tid for seneste print
 };
 
 export const MATERIALS = ["PLA", "PETG", "TPU", "ABS", "ASA", "Resin"];
