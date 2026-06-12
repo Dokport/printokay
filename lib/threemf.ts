@@ -92,32 +92,34 @@ function normHex(c: string): string {
 }
 
 /**
- * Tessellate a Bambu/Prusa per-triangle `paint_color` into coloured sub-triangles.
- * The attribute is a bit-packed PrusaSlicer `TriangleSelector` subdivision tree:
+ * Paint a Bambu/Prusa per-triangle `paint_color` onto the mesh with CLEAN colour
+ * boundaries. The attribute is a bit-packed PrusaSlicer `TriangleSelector` tree:
  *
  *  - nibbles are stored in REVERSE order, each read LSB-first
- *  - per node: bits 0-1 = number of split edges. 0 → a leaf; 1/2/3 → that many+1
- *    children. For a leaf, bits 2-3 hold the state; for a split, the "special side".
+ *  - per node: bits 0-1 = number of split edges (0 → leaf; 1/2/3 → that many+1
+ *    children). For a leaf, bits 2-3 hold the state; for a split, the "special side".
  *  - a leaf state of 0/1/2 sits in bits 2-3; 0b11 escapes to the next nibble
  *    (state = nibble+3, and 0b1110 escapes again to an 8-bit state)
  *  - state 0 → "use the object's own extruder"; state N (≥1) → extruder N
  *  - children are serialised in REVERSE index order (child[n]…child[0])
  *
- * Splitting adds edge-midpoint vertices and recurses exactly like the slicer, so a
- * colour boundary lands on the right geometry (the right layer) instead of snapping
- * to whole triangles. `midpoint(i,j)` allocates/returns a shared midpoint vertex;
- * `emit(ext,a,b,c)` receives each final coloured sub-triangle.
+ * Instead of emitting the whole subdivision tree (which Bambu paints dozens of
+ * levels deep → 100k+ triangles, and whose stair-step edges look jagged), we:
+ *   1. query the colour at ANY point via `colorAt(barycentric)` — navigating the
+ *      tree's split geometry in barycentric space;
+ *   2. subdivide regularly only to localise boundaries (cheap, uniform parts
+ *      collapse to one triangle);
+ *   3. for a boundary sub-triangle, binary-search the exact edge crossings and cut
+ *      it along the real boundary LINE → a smooth, crisp edge with few triangles.
  *
- * Subdivision (rotated so `special` is the canonical side; A,B,C = rotated corners):
- *   1 split: edge B–C → [A,B,Mbc] [Mbc,C,A]
- *   2 split: edges A–B, A–C → [A,Mab,Mac] [Mab,B,Mac] [B,C,Mac]
- *   3 split: all edges → [A,Mab,Mac] [Mab,B,Mbc] [Mbc,C,Mac] [Mab,Mbc,Mac]
+ * `lerp(i,j,t)` allocates/returns a shared vertex t of the way from i to j;
+ * `emit(ext,a,b,c)` receives each final coloured triangle.
  */
 function tessellatePaint(
   hex: string,
   g0: number, g1: number, g2: number,
   objExt: number,
-  midpoint: (i: number, j: number) => number,
+  lerp: (i: number, j: number, t: number) => number,
   emit: (ext: number, a: number, b: number, c: number) => void
 ): void {
   const bits: number[] = [];
@@ -126,29 +128,98 @@ function tessellatePaint(
     if (Number.isNaN(v)) continue;
     bits.push(v & 1, (v >> 1) & 1, (v >> 2) & 1, (v >> 3) & 1);
   }
-  const readNibble = (i: number): [number, number] => {
+  const rn = (i: number): [number, number] => {
     let n = 0;
-    for (let k = 0; k < 4; k++) n |= (bits[i++] || 0) << k;
-    return [n, i];
+    for (let k = 0; k < 4; k++) n |= (bits[i + k] || 0) << k;
+    return [n, i + 4];
   };
-  // Peek the subtree at `start`: how many DISTINCT states it contains, its dominant
-  // state, and the cursor after it — all without touching geometry. Uniform subtrees
-  // (the vast majority — solid regions, even when deeply encoded) collapse to a single
-  // triangle, so we only ever subdivide along actual colour boundaries.
+  // Advance the cursor past one whole node subtree without decoding colours.
+  const skip = (i: number): number => {
+    if (i + 4 > bits.length) return i;
+    let code: number; [code, i] = rn(i);
+    const split = code & 0b11;
+    if (split === 0) { if (((code >> 2) & 0b11) === 0b11) { let s2: number; [s2, i] = rn(i); if (s2 === 0b1110) i += 8; } return i; }
+    for (let c = 0; c <= split; c++) i = skip(i);
+    return i;
+  };
+  // The extruder at barycentric (w0,w1,w2) of the original triangle. Walks the tree,
+  // at each split picking the child sub-triangle that contains the point (and the
+  // matching local barycentric), skipping the siblings that precede it in the stream.
+  const colorAt = (w0: number, w1: number, w2: number): number => {
+    let i = 0, a = w0, b = w1, c = w2;
+    for (;;) {
+      if (i + 4 > bits.length) return objExt;
+      let code: number; [code, i] = rn(i);
+      const split = code & 0b11;
+      if (split === 0) {
+        const hi = (code >> 2) & 0b11;
+        let state: number;
+        if (hi !== 0b11) state = hi;
+        else { let s2: number; [s2, i] = rn(i); if (s2 !== 0b1110) state = s2 + 3; else { let v = 0; for (let k = 0; k < 8; k++) v |= (bits[i + k] || 0) << k; state = v + 17; } }
+        return state === 0 ? objExt : state;
+      }
+      const special = ((code >> 2) & 0b11) % 3;
+      const wr = [a, b, c];
+      const wA = wr[special], wB = wr[(special + 1) % 3], wC = wr[(special + 2) % 3];
+      let j: number, la: number, lb: number, lc: number;
+      if (split === 1) {
+        if (wB >= wC) { j = 0; la = wA; lb = wB - wC; lc = 2 * wC; }              // [A,B,Mbc]
+        else { j = 1; la = 2 * wB; lb = wC - wB; lc = wA; }                        // [Mbc,C,A]
+      } else if (split === 2) {
+        if (wA >= 0.5) { j = 0; la = 2 * wA - 1; lb = 2 * wB; lc = 2 * wC; }       // [A,Mab,Mac]
+        else if (wA >= wC) { j = 1; la = 2 * wA - 2 * wC; lb = wB - wA + wC; lc = 2 * wC; } // [Mab,B,Mac]
+        else { j = 2; la = wB; lb = wC - wA; lc = 2 * wA; }                        // [B,C,Mac]
+      } else {
+        if (wA >= 0.5) { j = 0; la = 2 * wA - 1; lb = 2 * wB; lc = 2 * wC; }       // [A,Mab,Mac]
+        else if (wB >= 0.5) { j = 1; la = 2 * wA; lb = 2 * wB - 1; lc = 2 * wC; }  // [Mab,B,Mbc]
+        else if (wC >= 0.5) { j = 2; la = 2 * wB; lb = 2 * wC - 1; lc = 2 * wA; }  // [Mbc,C,Mac]
+        else { j = 3; la = 1 - 2 * wC; lb = 1 - 2 * wA; lc = 1 - 2 * wB; }         // [Mab,Mbc,Mac]
+      }
+      for (let s = 0; s < split - j; s++) i = skip(i); // siblings before child j in the stream
+      a = la; b = lb; c = lc;
+    }
+  };
+
+  type Bary = [number, number, number];
+  const mid = (p: Bary, q: Bary): Bary => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2];
+  // Binary-search the crossing on the edge p(colour at p)→q where the colour flips.
+  const crossing = (gp: number, gq: number, p: Bary, q: Bary): number => {
+    const cp = colorAt(p[0], p[1], p[2]);
+    let lo = 0, hi = 1;
+    for (let it = 0; it < 14; it++) {
+      const m = (lo + hi) / 2;
+      const c = colorAt(p[0] + (q[0] - p[0]) * m, p[1] + (q[1] - p[1]) * m, p[2] + (q[2] - p[2]) * m);
+      if (c === cp) lo = m; else hi = m;
+    }
+    return lerp(gp, gq, (lo + hi) / 2);
+  };
+  // Odd corner O (colour cO) vs the two equal corners P,Q (colour cPQ): the boundary
+  // crosses O–P and O–Q. Cut into a tip triangle + a quad (as two triangles).
+  const cut = (gO: number, gP: number, gQ: number, bO: Bary, bP: Bary, bQ: Bary, cO: number, cPQ: number) => {
+    const vP = crossing(gO, gP, bO, bP);
+    const vQ = crossing(gO, gQ, bO, bQ);
+    emit(cO, gO, vP, vQ);
+    emit(cPQ, vP, gP, gQ);
+    emit(cPQ, vP, gQ, vQ);
+  };
+
+  // Exact count of DISTINCT extruders in the subtree at `start` (+ the dominant one
+  // and the cursor after it). Drives subdivision so a colour is never dropped: we
+  // only collapse a region to one triangle when it is provably uniform.
   const peek = (start: number): { distinct: number; dominant: number; end: number } => {
     let i = start;
-    const counts = new Map<number, number>(); // keyed by resolved EXTRUDER
+    const counts = new Map<number, number>();
     const bump = (ext: number) => counts.set(ext, (counts.get(ext) ?? 0) + 1);
     const walk = () => {
       if (i + 4 > bits.length) { bump(objExt); return; }
-      let code: number; [code, i] = readNibble(i);
+      let code: number; [code, i] = rn(i);
       const split = code & 0b11;
       if (split !== 0) { for (let c = 0; c <= split; c++) walk(); return; }
       const hi = (code >> 2) & 0b11;
       let state: number;
       if (hi !== 0b11) state = hi;
-      else { let s2: number; [s2, i] = readNibble(i); if (s2 !== 0b1110) state = s2 + 3; else { let v = 0; for (let k = 0; k < 8; k++) v |= (bits[i++] || 0) << k; state = v + 17; } }
-      bump(state === 0 ? objExt : state); // state 0 → object's own extruder
+      else { let s2: number; [s2, i] = rn(i); if (s2 !== 0b1110) state = s2 + 3; else { let v = 0; for (let k = 0; k < 8; k++) v |= (bits[i + k] || 0) << k; state = v + 17; } }
+      bump(state === 0 ? objExt : state);
     };
     walk();
     let dominant = objExt, dn = -1;
@@ -156,43 +227,51 @@ function tessellatePaint(
     return { distinct: counts.size, dominant, end: i };
   };
 
-  // Cap subdivision depth: each level refines a colour boundary 2× finer. Bambu can
-  // paint boundaries dozens of levels deep, which would explode into 100k+ triangles
-  // per model — far too heavy for a web preview. 3 levels (8× finer than whole-triangle
-  // colouring) tracks the real boundary closely while keeping the mesh light. Beyond
-  // the cap a sub-triangle takes its dominant colour.
-  const MAX_DEPTH = 3;
+  // Follow the paint tree, tracking each node triangle's barycentric corners. Uniform
+  // subtrees collapse to one triangle (EXACT via peek — a colour is never dropped).
+  // A clean TWO-colour region is cut along the real boundary line once we've localised
+  // it to CUT_DEPTH; three-colour junctions keep recursing the tree (independent of
+  // CUT_DEPTH) until they split into two-colour regions, so no colour is lost there.
+  const CUT_DEPTH = 2;
+  const HARD_CAP = 8; // absolute safety stop for pathological deep overlaps
   let ibit = 0;
-  const node = (a: number, b: number, c: number, depth: number) => {
-    if (ibit + 4 > bits.length) { emit(objExt, a, b, c); return; }
+  const node = (g0_: number, g1_: number, g2_: number, b0: Bary, b1: Bary, b2: Bary, depth: number) => {
     const { distinct, dominant, end } = peek(ibit);
-    if (distinct <= 1 || depth >= MAX_DEPTH) {
-      // Uniform region (or depth cap) → one triangle with the (dominant) extruder.
+    if (distinct <= 1) { ibit = end; emit(dominant, g0_, g1_, g2_); return; }
+    if ((distinct === 2 && depth >= CUT_DEPTH) || depth >= HARD_CAP) {
+      // Cut along the boundary if the three corners expose exactly two colours.
+      const ca = colorAt(b0[0], b0[1], b0[2]);
+      const cb = colorAt(b1[0], b1[1], b1[2]);
+      const cc = colorAt(b2[0], b2[1], b2[2]);
+      if (ca === cb && cb !== cc) cut(g2_, g0_, g1_, b2, b0, b1, cc, ca);
+      else if (cb === cc && cc !== ca) cut(g0_, g1_, g2_, b0, b1, b2, ca, cb);
+      else if (ca === cc && cc !== cb) cut(g1_, g2_, g0_, b1, b2, b0, cb, cc);
+      else emit(dominant, g0_, g1_, g2_); // uniform corners (tiny island) or 3-colour junction
       ibit = end;
-      emit(dominant, a, b, c);
       return;
     }
-    // Mixed subtree → read this node's header and subdivide along the boundary.
-    let code: number; [code, ibit] = readNibble(ibit);
+    // Recurse the tree's own children (peek said mixed → this is a split node).
+    let code: number; [code, ibit] = rn(ibit);
     const split = code & 0b11;
     const special = ((code >> 2) & 0b11) % 3;
-    const V = [a, b, c];
-    const A = V[special], B = V[(special + 1) % 3], C = V[(special + 2) % 3];
-    let children: [number, number, number][];
+    const G = [g0_, g1_, g2_], B = [b0, b1, b2];
+    const A = G[special], Bv = G[(special + 1) % 3], C = G[(special + 2) % 3];
+    const bA = B[special], bB = B[(special + 1) % 3], bC = B[(special + 2) % 3];
+    let kids: { g: [number, number, number]; b: [Bary, Bary, Bary] }[];
     if (split === 1) {
-      const Mbc = midpoint(B, C);
-      children = [[A, B, Mbc], [Mbc, C, A]];
+      const M = lerp(Bv, C, 0.5), bM = mid(bB, bC);
+      kids = [{ g: [A, Bv, M], b: [bA, bB, bM] }, { g: [M, C, A], b: [bM, bC, bA] }];
     } else if (split === 2) {
-      const Mab = midpoint(A, B), Mac = midpoint(A, C);
-      children = [[A, Mab, Mac], [Mab, B, Mac], [B, C, Mac]];
+      const Mab = lerp(A, Bv, 0.5), bMab = mid(bA, bB), Mac = lerp(A, C, 0.5), bMac = mid(bA, bC);
+      kids = [{ g: [A, Mab, Mac], b: [bA, bMab, bMac] }, { g: [Mab, Bv, Mac], b: [bMab, bB, bMac] }, { g: [Bv, C, Mac], b: [bB, bC, bMac] }];
     } else {
-      const Mab = midpoint(A, B), Mbc = midpoint(B, C), Mac = midpoint(A, C);
-      children = [[A, Mab, Mac], [Mab, B, Mbc], [Mbc, C, Mac], [Mab, Mbc, Mac]];
+      const Mab = lerp(A, Bv, 0.5), bMab = mid(bA, bB), Mbc = lerp(Bv, C, 0.5), bMbc = mid(bB, bC), Mac = lerp(A, C, 0.5), bMac = mid(bA, bC);
+      kids = [{ g: [A, Mab, Mac], b: [bA, bMab, bMac] }, { g: [Mab, Bv, Mbc], b: [bMab, bB, bMbc] }, { g: [Mbc, C, Mac], b: [bMbc, bC, bMac] }, { g: [Mab, Mbc, Mac], b: [bMab, bMbc, bMac] }];
     }
     // Children are serialised high index → low, so recurse in that same order.
-    for (let k = children.length - 1; k >= 0; k--) node(children[k][0], children[k][1], children[k][2], depth + 1);
+    for (let k = kids.length - 1; k >= 0; k--) node(kids[k].g[0], kids[k].g[1], kids[k].g[2], kids[k].b[0], kids[k].b[1], kids[k].b[2], depth + 1);
   };
-  node(g0, g1, g2, 0);
+  node(g0, g1, g2, [1, 0, 0], [0, 1, 0], [0, 0, 1], 0);
 }
 
 /**
@@ -456,19 +535,23 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
     if (!arr) groups.set(ext, (arr = []));
     arr.push(a, b, c);
   };
-  // Shared edge-midpoint cache, so subdivided neighbours stay watertight (no cracks).
-  const midCache = new Map<string, number>();
-  const midpoint = (i: number, j: number): number => {
-    const key = i < j ? `${i},${j}` : `${j},${i}`;
-    const hit = midCache.get(key);
+  // Shared edge-point cache (keyed by edge + parameter), so neighbours that split an
+  // edge at the same place reuse the vertex and the mesh stays watertight (no cracks).
+  const edgeCache = new Map<string, number>();
+  const lerp = (i: number, j: number, t: number): number => {
+    // Canonicalise direction so both sides of an edge produce the same key.
+    let a = i, b = j, tt = t;
+    if (i > j) { a = j; b = i; tt = 1 - t; }
+    const key = `${a},${b},${Math.round(tt * 4096)}`;
+    const hit = edgeCache.get(key);
     if (hit != null) return hit;
     const m = positions.length / 3;
     positions.push(
-      Math.round((positions[i * 3] + positions[j * 3]) / 2 * 1000) / 1000,
-      Math.round((positions[i * 3 + 1] + positions[j * 3 + 1]) / 2 * 1000) / 1000,
-      Math.round((positions[i * 3 + 2] + positions[j * 3 + 2]) / 2 * 1000) / 1000,
+      Math.round((positions[a * 3] + (positions[b * 3] - positions[a * 3]) * tt) * 1000) / 1000,
+      Math.round((positions[a * 3 + 1] + (positions[b * 3 + 1] - positions[a * 3 + 1]) * tt) * 1000) / 1000,
+      Math.round((positions[a * 3 + 2] + (positions[b * 3 + 2] - positions[a * 3 + 2]) * tt) * 1000) / 1000,
     );
-    midCache.set(key, m);
+    edgeCache.set(key, m);
     return m;
   };
 
@@ -496,7 +579,7 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
       if (Number.isNaN(v1) || Number.isNaN(v2) || Number.isNaN(v3)) continue;
       const g0 = baseIndex + v1, g1 = baseIndex + v2, g2 = baseIndex + v3;
       const pc = attr(t, "paint_color");
-      if (pc) tessellatePaint(pc, g0, g1, g2, extruder, midpoint, add);
+      if (pc) tessellatePaint(pc, g0, g1, g2, extruder, lerp, add);
       else add(extruder, g0, g1, g2);
     }
   }
