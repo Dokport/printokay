@@ -473,16 +473,35 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
     if (!arr) groups.set(key, (arr = []));
     arr.push(t.a, t.b, t.c);
   };
+  // Per-vertex tally of which solid zones touch it, so a boundary triangle can be
+  // coloured like the region it actually borders (crisp seams, no colour bleed).
+  const vertexVotes = new Map<number, Map<string, number>>();
+  const vote = (v: number, key: string) => {
+    let m = vertexVotes.get(v);
+    if (!m) vertexVotes.set(v, (m = new Map()));
+    m.set(key, (m.get(key) ?? 0) + 1);
+  };
   const boundary: Tri[] = [];
   for (const t of tris) {
-    if (!t.painted) add(`e${t.ext}`, t);
-    else if (t.paint != null) add(`p${t.paint}`, t);
-    else boundary.push(t); // long boundary code → fold into the dominant zone below
+    let key: string | null = null;
+    if (!t.painted) key = `e${t.ext}`;
+    else if (t.paint != null) key = `p${t.paint}`;
+    if (key) { add(key, t); vote(t.a, key); vote(t.b, key); vote(t.c, key); }
+    else boundary.push(t); // long boundary/split code — resolved by neighbours below
   }
-  // Fold boundary triangles into whichever zone is largest (the seam is thin).
+  // Assign each boundary triangle to the solid zone its vertices mostly touch.
   let domKey = "e1", domSize = -1;
   for (const [k, arr] of groups) if (arr.length > domSize) { domSize = arr.length; domKey = k; }
-  for (const t of boundary) add(domKey, t);
+  for (const t of boundary) {
+    const tally = new Map<string, number>();
+    for (const v of [t.a, t.b, t.c]) {
+      const m = vertexVotes.get(v);
+      if (m) for (const [k, n] of m) tally.set(k, (tally.get(k) ?? 0) + n);
+    }
+    let best = domKey, bestN = -1;
+    for (const [k, n] of tally) if (n > bestN) { bestN = n; best = k; }
+    add(best, t);
+  }
 
   const modelColors = extractModelColors(files);
   const zones: MeshZone[] = [...groups.entries()].map(([key, indices]) => {
