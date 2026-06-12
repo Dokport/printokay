@@ -92,53 +92,107 @@ function normHex(c: string): string {
 }
 
 /**
- * Decode a Bambu/Prusa per-triangle `paint_color` to the extruder (1-based) that
- * covers most of the triangle. The attribute is a bit-packed triangle-subdivision
- * tree (PrusaSlicer `TriangleSelector`), NOT a plain colour id:
+ * Tessellate a Bambu/Prusa per-triangle `paint_color` into coloured sub-triangles.
+ * The attribute is a bit-packed PrusaSlicer `TriangleSelector` subdivision tree:
  *
  *  - nibbles are stored in REVERSE order, each read LSB-first
  *  - per node: bits 0-1 = number of split edges. 0 → a leaf; 1/2/3 → that many+1
- *    children (recurse), with bits 2-3 being the split's special side (ignored here)
- *  - a leaf's state lives in bits 2-3: 0/1/2 directly, or 0b11 → escape: read the
- *    next nibble (state = nibble+3, with 0b1110 escaping again to an 8-bit state)
- *  - state 0 means "use the object's own extruder"; state N (≥1) means extruder N,
- *    i.e. `filament_colour[N-1]`
+ *    children. For a leaf, bits 2-3 hold the state; for a split, the "special side".
+ *  - a leaf state of 0/1/2 sits in bits 2-3; 0b11 escapes to the next nibble
+ *    (state = nibble+3, and 0b1110 escapes again to an 8-bit state)
+ *  - state 0 → "use the object's own extruder"; state N (≥1) → extruder N
+ *  - children are serialised in REVERSE index order (child[n]…child[0])
  *
- * A boundary triangle is split across colours; we return its dominant leaf state so
- * each triangle still maps to a single, correct colour (sharp seams, right count).
+ * Splitting adds edge-midpoint vertices and recurses exactly like the slicer, so a
+ * colour boundary lands on the right geometry (the right layer) instead of snapping
+ * to whole triangles. `midpoint(i,j)` allocates/returns a shared midpoint vertex;
+ * `emit(ext,a,b,c)` receives each final coloured sub-triangle.
+ *
+ * Subdivision (rotated so `special` is the canonical side; A,B,C = rotated corners):
+ *   1 split: edge B–C → [A,B,Mbc] [Mbc,C,A]
+ *   2 split: edges A–B, A–C → [A,Mab,Mac] [Mab,B,Mac] [B,C,Mac]
+ *   3 split: all edges → [A,Mab,Mac] [Mab,B,Mbc] [Mbc,C,Mac] [Mab,Mbc,Mac]
  */
-function decodePaintExtruder(hex: string, objExt: number): number {
+function tessellatePaint(
+  hex: string,
+  g0: number, g1: number, g2: number,
+  objExt: number,
+  midpoint: (i: number, j: number) => number,
+  emit: (ext: number, a: number, b: number, c: number) => void
+): void {
   const bits: number[] = [];
   for (let i = hex.length - 1; i >= 0; i--) {
     const v = parseInt(hex[i], 16);
     if (Number.isNaN(v)) continue;
     bits.push(v & 1, (v >> 1) & 1, (v >> 2) & 1, (v >> 3) & 1);
   }
-  let ibit = 0;
-  const nibble = () => { let n = 0; for (let i = 0; i < 4; i++) n |= (bits[ibit++] || 0) << i; return n; };
-  const leaves: number[] = [];
-  const node = () => {
-    if (ibit + 4 > bits.length) return;
-    const code = nibble();
-    const split = code & 0b11;
-    if (split !== 0) { for (let c = 0; c <= split; c++) node(); return; } // split+1 children
-    const hi = (code >> 2) & 0b11;
-    let state: number;
-    if (hi !== 0b11) state = hi;                       // states 0..2
-    else {
-      const s2 = nibble();
-      if (s2 !== 0b1110) state = s2 + 3;                // states 3..16
-      else { let v = 0; for (let i = 0; i < 8; i++) v |= (bits[ibit++] || 0) << i; state = v + 17; }
-    }
-    leaves.push(state);
+  const readNibble = (i: number): [number, number] => {
+    let n = 0;
+    for (let k = 0; k < 4; k++) n |= (bits[i++] || 0) << k;
+    return [n, i];
   };
-  node();
-  if (!leaves.length) return objExt;
-  const counts = new Map<number, number>();
-  for (const s of leaves) counts.set(s, (counts.get(s) ?? 0) + 1);
-  let best = leaves[0], bn = -1;
-  for (const [s, n] of counts) if (n > bn) { bn = n; best = s; }
-  return best === 0 ? objExt : best;
+  // Peek the subtree at `start`: how many DISTINCT states it contains, its dominant
+  // state, and the cursor after it — all without touching geometry. Uniform subtrees
+  // (the vast majority — solid regions, even when deeply encoded) collapse to a single
+  // triangle, so we only ever subdivide along actual colour boundaries.
+  const peek = (start: number): { distinct: number; dominant: number; end: number } => {
+    let i = start;
+    const counts = new Map<number, number>(); // keyed by resolved EXTRUDER
+    const bump = (ext: number) => counts.set(ext, (counts.get(ext) ?? 0) + 1);
+    const walk = () => {
+      if (i + 4 > bits.length) { bump(objExt); return; }
+      let code: number; [code, i] = readNibble(i);
+      const split = code & 0b11;
+      if (split !== 0) { for (let c = 0; c <= split; c++) walk(); return; }
+      const hi = (code >> 2) & 0b11;
+      let state: number;
+      if (hi !== 0b11) state = hi;
+      else { let s2: number; [s2, i] = readNibble(i); if (s2 !== 0b1110) state = s2 + 3; else { let v = 0; for (let k = 0; k < 8; k++) v |= (bits[i++] || 0) << k; state = v + 17; } }
+      bump(state === 0 ? objExt : state); // state 0 → object's own extruder
+    };
+    walk();
+    let dominant = objExt, dn = -1;
+    for (const [ext, n] of counts) if (n > dn) { dn = n; dominant = ext; }
+    return { distinct: counts.size, dominant, end: i };
+  };
+
+  // Cap subdivision depth: each level refines a colour boundary 2× finer. Bambu can
+  // paint boundaries dozens of levels deep, which would explode into 100k+ triangles
+  // per model — far too heavy for a web preview. 3 levels (8× finer than whole-triangle
+  // colouring) tracks the real boundary closely while keeping the mesh light. Beyond
+  // the cap a sub-triangle takes its dominant colour.
+  const MAX_DEPTH = 3;
+  let ibit = 0;
+  const node = (a: number, b: number, c: number, depth: number) => {
+    if (ibit + 4 > bits.length) { emit(objExt, a, b, c); return; }
+    const { distinct, dominant, end } = peek(ibit);
+    if (distinct <= 1 || depth >= MAX_DEPTH) {
+      // Uniform region (or depth cap) → one triangle with the (dominant) extruder.
+      ibit = end;
+      emit(dominant, a, b, c);
+      return;
+    }
+    // Mixed subtree → read this node's header and subdivide along the boundary.
+    let code: number; [code, ibit] = readNibble(ibit);
+    const split = code & 0b11;
+    const special = ((code >> 2) & 0b11) % 3;
+    const V = [a, b, c];
+    const A = V[special], B = V[(special + 1) % 3], C = V[(special + 2) % 3];
+    let children: [number, number, number][];
+    if (split === 1) {
+      const Mbc = midpoint(B, C);
+      children = [[A, B, Mbc], [Mbc, C, A]];
+    } else if (split === 2) {
+      const Mab = midpoint(A, B), Mac = midpoint(A, C);
+      children = [[A, Mab, Mac], [Mab, B, Mac], [B, C, Mac]];
+    } else {
+      const Mab = midpoint(A, B), Mbc = midpoint(B, C), Mac = midpoint(A, C);
+      children = [[A, Mab, Mac], [Mab, B, Mbc], [Mbc, C, Mac], [Mab, Mbc, Mac]];
+    }
+    // Children are serialised high index → low, so recurse in that same order.
+    for (let k = children.length - 1; k >= 0; k--) node(children[k][0], children[k][1], children[k][2], depth + 1);
+  };
+  node(g0, g1, g2, 0);
 }
 
 /**
@@ -393,14 +447,29 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
   }
 
   const positions: number[] = [];
-  // Group triangles by their decoded extruder → one zone per real colour. Each
-  // triangle's colour comes from decoding its paint_color (or the object's own
-  // extruder when unpainted), so the zone count and colours are exact — no guessing.
+  // Group triangles by their decoded extruder → one zone per real colour. Painted
+  // triangles are tessellated (boundary triangles split into coloured sub-triangles),
+  // so both the zone count and the colour boundaries are exact — no guessing.
   const groups = new Map<number, number[]>(); // extruder → vertex indices
   const add = (ext: number, a: number, b: number, c: number) => {
     let arr = groups.get(ext);
     if (!arr) groups.set(ext, (arr = []));
     arr.push(a, b, c);
+  };
+  // Shared edge-midpoint cache, so subdivided neighbours stay watertight (no cracks).
+  const midCache = new Map<string, number>();
+  const midpoint = (i: number, j: number): number => {
+    const key = i < j ? `${i},${j}` : `${j},${i}`;
+    const hit = midCache.get(key);
+    if (hit != null) return hit;
+    const m = positions.length / 3;
+    positions.push(
+      Math.round((positions[i * 3] + positions[j * 3]) / 2 * 1000) / 1000,
+      Math.round((positions[i * 3 + 1] + positions[j * 3 + 1]) / 2 * 1000) / 1000,
+      Math.round((positions[i * 3 + 2] + positions[j * 3 + 2]) / 2 * 1000) / 1000,
+    );
+    midCache.set(key, m);
+    return m;
   };
 
   for (const { meshXml, matrix, extruder } of placements) {
@@ -425,9 +494,10 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
       const v2 = parseInt(attr(t, "v2") ?? "", 10);
       const v3 = parseInt(attr(t, "v3") ?? "", 10);
       if (Number.isNaN(v1) || Number.isNaN(v2) || Number.isNaN(v3)) continue;
+      const g0 = baseIndex + v1, g1 = baseIndex + v2, g2 = baseIndex + v3;
       const pc = attr(t, "paint_color");
-      const ext = pc ? decodePaintExtruder(pc, extruder) : extruder;
-      add(ext, baseIndex + v1, baseIndex + v2, baseIndex + v3);
+      if (pc) tessellatePaint(pc, g0, g1, g2, extruder, midpoint, add);
+      else add(extruder, g0, g1, g2);
     }
   }
 
