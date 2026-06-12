@@ -6,7 +6,7 @@ import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_TH
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
 import type { Order } from "@/lib/orders";
 import type { ColorZone, Printer, PrintRequest } from "@/lib/products";
-import { parseThreeMf, parseThreeMfMeta, parseSlicedStats, mapZonesToFilaments, type SlicedFilament } from "@/lib/threemf";
+import { parseThreeMf, parseThreeMfMeta, parseSlicedStats } from "@/lib/threemf";
 import { upload } from "@vercel/blob/client";
 import ZoneMapper from "@/components/ZoneMapper";
 import Image from "next/image";
@@ -76,10 +76,9 @@ export default function AdminPage() {
   const modelFileRef = useRef<HTMLInputElement>(null);
   const projectFileRef = useRef<HTMLInputElement>(null);
   const previewFileRef = useRef<HTMLInputElement>(null);
-  // Parsed mesh zones + sliced filaments persist across separate uploads (the
-  // "+ Tilføj manglende fil" flow), so colour slots recompute once BOTH are present.
+  // Parsed mesh zones persist across separate uploads (the "+ Tilføj manglende fil"
+  // flow), so colour slots stay correct whichever file is dropped first.
   const meshZonesRef = useRef<ReturnType<typeof parseThreeMf>["zones"] | null>(null);
-  const slicedFilamentsRef = useRef<SlicedFilament[] | null>(null);
 
   // Settings state
   const [settings, setSettings] = useState<SiteSettings>(DEFAULT_SETTINGS);
@@ -283,7 +282,6 @@ export default function AdminPage() {
       let statsMsg = "";
       if (slicedFile && slicedBytes) {
         const stats = parseSlicedStats(slicedBytes)!;
-        slicedFilamentsRef.current = stats.filaments;
         next.printFile = await uploadModelToStorage(slicedFile);
         if (stats.printMinutes != null) { next.printHours = String(Math.floor(stats.printMinutes / 60)); next.printMins = String(stats.printMinutes % 60); }
         if (stats.filamentGrams != null) next.filamentGrams = String(stats.filamentGrams);
@@ -292,18 +290,12 @@ export default function AdminPage() {
         statsMsg = ` · ${stats.printMinutes} min · ${stats.filamentGrams} g${cost != null ? ` · ${(cost / 100).toFixed(2)} kr` : ""}`;
       }
 
-      // Colour slots/zones: the sliced file's filament list is authoritative for HOW
-      // MANY colours there are (paint_color is too lossy to count), so we build one
-      // slot per used filament and map the geometric mesh zones onto them. We read
-      // from the refs so this is correct whether both files arrived together or the
-      // sliced file was added later via "+ Tilføj manglende fil".
+      // Colour slots/zones come straight from the decoded mesh: each zone is one real
+      // extruder colour (paint_color is decoded per triangle), so one slot per zone.
       if (meshZonesRef.current) {
-        const { slots, colorZones } = mapZonesToFilaments(
-          meshZonesRef.current,
-          slicedFilamentsRef.current ?? []
-        );
-        next.colorSlots = slots;
-        next.colorZones = colorZones;
+        const zones = meshZonesRef.current;
+        next.colorSlots = zones.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
+        next.colorZones = zones.map((z, i) => ({ key: z.key, slotId: `slot-${i + 1}`, color: z.color }));
       }
 
       setForm((f) => ({ ...f, ...next }));
@@ -397,7 +389,7 @@ export default function AdminPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function cancelEdit() { meshZonesRef.current = null; slicedFilamentsRef.current = null; setEditingId(null); setForm(EMPTY_FORM); }
+  function cancelEdit() { meshZonesRef.current = null; setEditingId(null); setForm(EMPTY_FORM); }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setProductMsg("");
@@ -408,7 +400,7 @@ export default function AdminPage() {
     if (res.ok) {
       const updated = await authedFetch("/api/products").then((r) => r.json());
       setProducts(updated); setForm(EMPTY_FORM); setEditingId(null);
-      meshZonesRef.current = null; slicedFilamentsRef.current = null;
+      meshZonesRef.current = null;
       if (fileRef.current) fileRef.current.value = "";
       setProductMsg(editingId ? "✓ Produkt opdateret!" : "✓ Produkt tilføjet!");
       setTimeout(() => setProductMsg(""), 3000);
@@ -571,7 +563,7 @@ export default function AdminPage() {
                         + Tilføj manglende fil
                         <input type="file" accept=".3mf,.gcode,.gcode.3mf,.stl" multiple className="hidden" onChange={handleProjectUpload} disabled={parsingModel} />
                       </label>
-                      <button type="button" onClick={() => { meshZonesRef.current = null; slicedFilamentsRef.current = null; setForm(EMPTY_FORM); }} className="text-xs text-gray-400 hover:text-red-500 w-fit">Start forfra</button>
+                      <button type="button" onClick={() => { meshZonesRef.current = null; setForm(EMPTY_FORM); }} className="text-xs text-gray-400 hover:text-red-500 w-fit">Start forfra</button>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

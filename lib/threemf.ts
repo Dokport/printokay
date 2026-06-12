@@ -80,69 +80,6 @@ export function parseSlicedStats(buffer: Uint8Array): SlicedStats | null {
   };
 }
 
-// Squared RGB distance between two "#RRGGBB" colours (cheap nearest-colour metric).
-function colorDist(a: string, b: string): number {
-  const rgb = (h: string) => {
-    const x = h.replace(/^#/, "");
-    return [parseInt(x.slice(0, 2), 16) || 0, parseInt(x.slice(2, 4), 16) || 0, parseInt(x.slice(4, 6), 16) || 0];
-  };
-  const [r1, g1, b1] = rgb(a), [r2, g2, b2] = rgb(b);
-  return (r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2;
-}
-
-/**
- * Reconcile a model's geometric mesh zones with the filaments actually used in the
- * sliced file (the authoritative colour list). Produces one customer-facing colour
- * slot per used filament, and maps every mesh zone onto a slot:
- *
- *  - zones with a reliable colour (the unpainted `e<extruder>` regions) → the slot
- *    whose filament colour is nearest.
- *  - painted `p<…>` zones (colour unknown — paint_color is lossy) → the remaining
- *    filaments by descending usage, matched by descending zone area. Leftover zones
- *    fall back to the most-used slot.
- *
- * This keeps the colour COUNT correct (it always equals the sliced filament count)
- * regardless of how the paint_color tree happens to encode the boundaries.
- */
-export function mapZonesToFilaments(
-  zones: MeshZone[],
-  filaments: SlicedFilament[]
-): { slots: { id: string; label: string }[]; colorZones: { key: string; slotId: string; color?: string }[] } {
-  const used = filaments.filter((f) => f.usedGrams > 0);
-  if (!used.length) {
-    // No sliced data — fall back to one slot per mesh zone.
-    const slots = zones.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
-    return { slots, colorZones: zones.map((z, i) => ({ key: z.key, slotId: `slot-${i + 1}`, color: z.color })) };
-  }
-
-  // One slot per used filament, ordered by descending usage (biggest area first).
-  const F = [...used].sort((a, b) => b.usedGrams - a.usedGrams);
-  const slots = F.map((_, i) => ({ id: `slot-${i + 1}`, label: `Farve ${i + 1}` }));
-
-  const colorZones: { key: string; slotId: string; color?: string }[] = [];
-  const claimed = new Set<number>();
-
-  // Colour-bearing (unpainted) zones → nearest filament by colour.
-  const coloured = zones.filter((z) => z.color).sort((a, b) => b.indices.length - a.indices.length);
-  for (const z of coloured) {
-    let best = 0, bd = Infinity;
-    F.forEach((f, i) => { const d = colorDist(z.color!, f.color); if (d < bd) { bd = d; best = i; } });
-    claimed.add(best);
-    colorZones.push({ key: z.key, slotId: slots[best].id, color: F[best].color });
-  }
-
-  // Painted zones (colour unknown) → remaining filaments by usage, biggest zone first.
-  const painted = zones.filter((z) => !z.color).sort((a, b) => b.indices.length - a.indices.length);
-  const remaining = F.map((_, i) => i).filter((i) => !claimed.has(i));
-  for (const z of painted) {
-    const idx = remaining.length ? remaining.shift()! : 0; // fall back to the biggest slot
-    claimed.add(idx);
-    colorZones.push({ key: z.key, slotId: slots[idx].id, color: F[idx].color });
-  }
-
-  return { slots, colorZones };
-}
-
 function attr(tag: string, name: string): string | null {
   const m = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
   return m ? m[1] : null;
@@ -155,23 +92,54 @@ function normHex(c: string): string {
 }
 
 /**
- * Bambu/Prusa store per-triangle MMU painting in `paint_color` as a bit-packed
- * subdivision tree, NOT a plain colour id:
- *  - a triangle painted one solid colour gets a SHORT code ("4", "8", "1C", …)
- *  - a triangle straddling a colour boundary is subdivided and gets a LONG,
- *    near-unique encoded string ("441C443443", …)
+ * Decode a Bambu/Prusa per-triangle `paint_color` to the extruder (1-based) that
+ * covers most of the triangle. The attribute is a bit-packed triangle-subdivision
+ * tree (PrusaSlicer `TriangleSelector`), NOT a plain colour id:
  *
- * A model can therefore have only a handful of real colours but hundreds of
- * distinct boundary codes (894 for this 4-colour hedgehog). Grouping by the raw
- * string explodes into bogus zones. We instead treat short codes as solid colours
- * and long codes as boundaries (folded into the dominant colour — a thin seam, so
- * the visual cost is negligible while the colour *count* is correct).
+ *  - nibbles are stored in REVERSE order, each read LSB-first
+ *  - per node: bits 0-1 = number of split edges. 0 → a leaf; 1/2/3 → that many+1
+ *    children (recurse), with bits 2-3 being the split's special side (ignored here)
+ *  - a leaf's state lives in bits 2-3: 0/1/2 directly, or 0b11 → escape: read the
+ *    next nibble (state = nibble+3, with 0b1110 escaping again to an 8-bit state)
+ *  - state 0 means "use the object's own extruder"; state N (≥1) means extruder N,
+ *    i.e. `filament_colour[N-1]`
  *
- * Rather than decode the (sparse, AMS-slot-dependent) absolute extruder number, we
- * rank the solid codes that actually appear and map them DENSELY onto the model's
- * filament list, so N painted colours always yield exactly N zones in file order.
+ * A boundary triangle is split across colours; we return its dominant leaf state so
+ * each triangle still maps to a single, correct colour (sharp seams, right count).
  */
-const isSolidPaintCode = (c: string) => c.length <= 2; // boundary/split codes are longer
+function decodePaintExtruder(hex: string, objExt: number): number {
+  const bits: number[] = [];
+  for (let i = hex.length - 1; i >= 0; i--) {
+    const v = parseInt(hex[i], 16);
+    if (Number.isNaN(v)) continue;
+    bits.push(v & 1, (v >> 1) & 1, (v >> 2) & 1, (v >> 3) & 1);
+  }
+  let ibit = 0;
+  const nibble = () => { let n = 0; for (let i = 0; i < 4; i++) n |= (bits[ibit++] || 0) << i; return n; };
+  const leaves: number[] = [];
+  const node = () => {
+    if (ibit + 4 > bits.length) return;
+    const code = nibble();
+    const split = code & 0b11;
+    if (split !== 0) { for (let c = 0; c <= split; c++) node(); return; } // split+1 children
+    const hi = (code >> 2) & 0b11;
+    let state: number;
+    if (hi !== 0b11) state = hi;                       // states 0..2
+    else {
+      const s2 = nibble();
+      if (s2 !== 0b1110) state = s2 + 3;                // states 3..16
+      else { let v = 0; for (let i = 0; i < 8; i++) v |= (bits[ibit++] || 0) << i; state = v + 17; }
+    }
+    leaves.push(state);
+  };
+  node();
+  if (!leaves.length) return objExt;
+  const counts = new Map<number, number>();
+  for (const s of leaves) counts.set(s, (counts.get(s) ?? 0) + 1);
+  let best = leaves[0], bn = -1;
+  for (const [s, n] of counts) if (n > bn) { bn = n; best = s; }
+  return best === 0 ? objExt : best;
+}
 
 /**
  * The model's intended filament colours, in slot order. Bambu stores them in
@@ -425,15 +393,15 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
   }
 
   const positions: number[] = [];
-  // First pass: classify each triangle.
-  //  - unpainted          → its object's extruder (reliable colour via filament list)
-  //  - painted solid code → the short code's numeric value (an opaque region id)
-  //  - painted long code  → a colour *boundary* (null), folded into the dominant zone
-  // We deliberately do NOT derive the colour COUNT from paint_color: it's a lossy,
-  // base-relative encoding. The sliced file's filament list is the source of truth
-  // for how many colours there are; the admin maps these geometric zones onto it.
-  type Tri = { a: number; b: number; c: number; ext: number; paint: number | null; painted: boolean };
-  const tris: Tri[] = [];
+  // Group triangles by their decoded extruder → one zone per real colour. Each
+  // triangle's colour comes from decoding its paint_color (or the object's own
+  // extruder when unpainted), so the zone count and colours are exact — no guessing.
+  const groups = new Map<number, number[]>(); // extruder → vertex indices
+  const add = (ext: number, a: number, b: number, c: number) => {
+    let arr = groups.get(ext);
+    if (!arr) groups.set(ext, (arr = []));
+    arr.push(a, b, c);
+  };
 
   for (const { meshXml, matrix, extruder } of placements) {
     // Vertices for THIS mesh start at this offset in the combined buffer.
@@ -458,57 +426,16 @@ export function parseThreeMf(buffer: Uint8Array): ParsedMesh {
       const v3 = parseInt(attr(t, "v3") ?? "", 10);
       if (Number.isNaN(v1) || Number.isNaN(v2) || Number.isNaN(v3)) continue;
       const pc = attr(t, "paint_color");
-      const painted = !!pc;
-      const paint = pc ? (isSolidPaintCode(pc) ? parseInt(pc, 16) : null) : null;
-      tris.push({ a: baseIndex + v1, b: baseIndex + v2, c: baseIndex + v3, ext: extruder, paint, painted });
+      const ext = pc ? decodePaintExtruder(pc, extruder) : extruder;
+      add(ext, baseIndex + v1, baseIndex + v2, baseIndex + v3);
     }
   }
 
-  // Group triangles into zones:
-  //  - unpainted  → key `e<extruder>` (colour = filament list entry — RELIABLE)
-  //  - painted    → key `p<value>`    (colour resolved later from the sliced file)
-  const groups = new Map<string, number[]>();
-  const add = (key: string, t: Tri) => {
-    let arr = groups.get(key);
-    if (!arr) groups.set(key, (arr = []));
-    arr.push(t.a, t.b, t.c);
-  };
-  // Per-vertex tally of which solid zones touch it, so a boundary triangle can be
-  // coloured like the region it actually borders (crisp seams, no colour bleed).
-  const vertexVotes = new Map<number, Map<string, number>>();
-  const vote = (v: number, key: string) => {
-    let m = vertexVotes.get(v);
-    if (!m) vertexVotes.set(v, (m = new Map()));
-    m.set(key, (m.get(key) ?? 0) + 1);
-  };
-  const boundary: Tri[] = [];
-  for (const t of tris) {
-    let key: string | null = null;
-    if (!t.painted) key = `e${t.ext}`;
-    else if (t.paint != null) key = `p${t.paint}`;
-    if (key) { add(key, t); vote(t.a, key); vote(t.b, key); vote(t.c, key); }
-    else boundary.push(t); // long boundary/split code — resolved by neighbours below
-  }
-  // Assign each boundary triangle to the solid zone its vertices mostly touch.
-  let domKey = "e1", domSize = -1;
-  for (const [k, arr] of groups) if (arr.length > domSize) { domSize = arr.length; domKey = k; }
-  for (const t of boundary) {
-    const tally = new Map<string, number>();
-    for (const v of [t.a, t.b, t.c]) {
-      const m = vertexVotes.get(v);
-      if (m) for (const [k, n] of m) tally.set(k, (tally.get(k) ?? 0) + n);
-    }
-    let best = domKey, bestN = -1;
-    for (const [k, n] of tally) if (n > bestN) { bestN = n; best = k; }
-    add(best, t);
-  }
-
+  // One zone per extruder, keyed `e<extruder>`, coloured from the filament list.
   const modelColors = extractModelColors(files);
-  const zones: MeshZone[] = [...groups.entries()].map(([key, indices]) => {
-    const em = key.match(/^e(\d+)$/);
-    const color = em ? modelColors[Number(em[1]) - 1] : undefined;
-    return { key, indices, color };
-  });
+  const zones: MeshZone[] = [...groups.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([ext, indices]) => ({ key: `e${ext}`, indices, color: modelColors[ext - 1] }));
 
   return { positions, zones };
 }
