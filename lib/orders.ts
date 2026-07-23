@@ -17,6 +17,10 @@ export type OrderItemKeyring = {
   stlId: string;          // file key: stl/{stlId}.stl (+ stl/{stlId}.3mf)
   stlGenerated: boolean;
   threeMfGenerated?: boolean; // a 2-colour 3MF was also saved (stl/{stlId}.3mf)
+  // ── Bambuddy-synkronisering (sat af sidecaren, ligesom produkter) ──
+  bambuddyFileId?: string;    // uploaded 3MF's Bambuddy file id
+  bambuddyFolderId?: string;
+  bambuddySyncedAt?: string;
 };
 
 export type OrderColorChoice = {

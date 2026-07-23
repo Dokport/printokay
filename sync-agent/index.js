@@ -575,9 +575,36 @@ async function handlePrintRequests() {
   }
 }
 
+// Custom keyrings from shop orders → Bambuddy (their 2-colour 3MF, into a
+// "Nøgleringe" folder). Same upload machinery as products; once synced they drop
+// off the list so this does nothing in a steady loop.
+async function syncKeyrings() {
+  const { toUpload } = await shop("/api/sync/keyrings").then((r) => r.json());
+  if (!toUpload || !toUpload.length) return;
+
+  const root = await ensureFolder(cfg.rootFolder, null);
+  const folder = await ensureFolder("Nøgleringe", root.id);
+
+  for (const k of toUpload) {
+    try {
+      const safe = (k.name || "Nøglering").replace(/[^a-zA-Z0-9æøåÆØÅ._ ()-]/g, "_").trim() || "Nøglering";
+      const fileId = await uploadFileFromShop(k.downloadPath, `${safe}.3mf`, folder.id);
+      await shop("/api/sync/keyrings/done", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stlId: k.stlId, bambuddy: { fileId, folderId: folder.id } }),
+      });
+      log(`nøglering: "${k.name}" → Bambuddy folder=${folder.id}, fil=${fileId}`);
+    } catch (e) {
+      err(`nøglering (${k.stlId}):`, e.message);
+    }
+  }
+}
+
 async function runOnce() {
   try { await syncFilaments(); } catch (e) { err("filament-sync:", e.message); }
   try { await syncModels(); } catch (e) { err("model-sync:", e.message); }
+  try { await syncKeyrings(); } catch (e) { err("nøgle-sync:", e.message); }
   try { await syncPrinters(); } catch (e) { err("printer-sync:", e.message); }
   try { await handlePrintRequests(); } catch (e) { err("print-requests:", e.message); }
 }
