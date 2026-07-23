@@ -21,9 +21,12 @@ import type { KeyringConfig, KeyringSizeOption } from "./keyring";
 import { extractTextContours } from "./textpaths.server";
 import { buildKeyringMesh, repairTJunctions, BASE_HEIGHT_MM, type Tri, type Vec3 } from "./keyringMesh";
 
-// A solid triangle painted entirely with extruder 2 = TriangleSelector leaf state 2,
-// which encodes to the single nibble 0b1000 → the string "8" (see lib/threemf.ts).
-const PAINT_EXTRUDER_2 = "8";
+// A solid triangle painted entirely with extruder N = TriangleSelector leaf state N
+// (see lib/threemf.ts): state 1 → nibble 0b0100 → "4", state 2 → 0b1000 → "8".
+// We paint EVERY triangle explicitly (rather than relying on the object's default
+// extruder for the unpainted body) so BambuStudio can't mis-assign the base colour.
+const PAINT_EXTRUDER_1 = "4"; // filament 1 = base colour
+const PAINT_EXTRUDER_2 = "8"; // filament 2 = text colour
 
 // A triangle belongs to the raised text if any vertex rises above the body.
 const isTextTri = (t: Tri): boolean =>
@@ -49,8 +52,8 @@ function meshXml(tris: Tri[]): { vertices: string; triangles: string } {
   for (const t of tris) {
     const a = vid(t[0]), b = vid(t[1]), c = vid(t[2]);
     if (a === b || b === c || a === c) continue; // drop degenerate
-    const paint = isTextTri(t) ? ` paint_color="${PAINT_EXTRUDER_2}"` : "";
-    triLines.push(`   <triangle v1="${a}" v2="${b}" v3="${c}"${paint}/>`);
+    const paint = isTextTri(t) ? PAINT_EXTRUDER_2 : PAINT_EXTRUDER_1;
+    triLines.push(`   <triangle v1="${a}" v2="${b}" v3="${c}" paint_color="${paint}"/>`);
   }
 
   const vertLines = verts.map((v) => `   <vertex x="${f(v[0])}" y="${f(v[1])}" z="${f(v[2])}"/>`);
