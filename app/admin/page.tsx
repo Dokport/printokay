@@ -44,15 +44,15 @@ export default function AdminPage() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [showPrinted, setShowPrinted] = useState(false);
 
-  async function downloadStl(stlId: string, text: string) {
-    const r = await authedFetch(`/api/orders/${stlId}/stl`);
+  async function downloadKeyringFile(stlId: string, text: string, format: "stl" | "3mf") {
+    const r = await authedFetch(`/api/orders/${stlId}/${format}`);
     if (!r.ok) return;
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     const safe = (text || "noglering").replace(/[^a-zA-Z0-9æøåÆØÅ]/g, "_").slice(0, 20);
-    a.download = `noglering_${safe}_${stlId}.stl`;
+    a.download = `noglering_${safe}_${stlId}.${format}`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1255,19 +1255,31 @@ export default function AdminPage() {
                                   )}
                                 </div>
 
-                                {/* Per-item STL download (keyrings only) */}
+                                {/* Per-item downloads (keyrings only): 2-colour 3MF + plain STL */}
                                 {k && (
-                                  k.stlGenerated ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => downloadStl(k.stlId, k.config.text)}
-                                      className="bg-blue-600 text-white text-xs px-3 py-2 rounded-xl font-semibold hover:bg-blue-700 transition-colors flex-shrink-0"
-                                    >
-                                      ⬇️ STL
-                                    </button>
-                                  ) : (
-                                    <span className="text-xs text-gray-400 italic flex-shrink-0">STL ikke klar</span>
-                                  )
+                                  <div className="flex gap-2 flex-shrink-0">
+                                    {k.threeMfGenerated && (
+                                      <button
+                                        type="button"
+                                        onClick={() => downloadKeyringFile(k.stlId, k.config.text, "3mf")}
+                                        title="3MF med begge farver + filamentskift indbygget"
+                                        className="bg-purple-600 text-white text-xs px-3 py-2 rounded-xl font-semibold hover:bg-purple-700 transition-colors"
+                                      >
+                                        ⬇️ 3MF (farver)
+                                      </button>
+                                    )}
+                                    {k.stlGenerated ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => downloadKeyringFile(k.stlId, k.config.text, "stl")}
+                                        className="bg-blue-600 text-white text-xs px-3 py-2 rounded-xl font-semibold hover:bg-blue-700 transition-colors"
+                                      >
+                                        ⬇️ STL
+                                      </button>
+                                    ) : (
+                                      <span className="text-xs text-gray-400 italic self-center">STL ikke klar</span>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>

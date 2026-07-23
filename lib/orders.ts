@@ -14,8 +14,9 @@ export type OrderItemKeyring = {
   textColorHex: string;
   baseFilamentName: string;
   textFilamentName: string;
-  stlId: string;          // file key: stl/{stlId}.stl
+  stlId: string;          // file key: stl/{stlId}.stl (+ stl/{stlId}.3mf)
   stlGenerated: boolean;
+  threeMfGenerated?: boolean; // a 2-colour 3MF was also saved (stl/{stlId}.3mf)
 };
 
 export type OrderColorChoice = {
@@ -154,4 +155,14 @@ export async function saveStl(stlId: string, stl: Buffer): Promise<void> {
 
 export async function readStl(stlId: string): Promise<Buffer | null> {
   return readBinaryFile(`stl/${stlId}.stl`);
+}
+
+// ─── 3MF files (2-colour, filament changes embedded) ────────────────────────────
+
+export async function save3mf(stlId: string, threeMf: Buffer): Promise<void> {
+  await writeBinaryFile(`stl/${stlId}.3mf`, threeMf);
+}
+
+export async function read3mf(stlId: string): Promise<Buffer | null> {
+  return readBinaryFile(`stl/${stlId}.3mf`);
 }
