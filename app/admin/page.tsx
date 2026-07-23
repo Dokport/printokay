@@ -1255,19 +1255,19 @@ export default function AdminPage() {
                                   )}
                                 </div>
 
-                                {/* Per-item downloads (keyrings only): 2-colour 3MF + plain STL */}
+                                {/* Per-item downloads (keyrings only): 2-colour 3MF + plain STL.
+                                    The 3MF is generated on demand, so it works for older
+                                    orders placed before this export existed. */}
                                 {k && (
                                   <div className="flex gap-2 flex-shrink-0">
-                                    {k.threeMfGenerated && (
-                                      <button
-                                        type="button"
-                                        onClick={() => downloadKeyringFile(k.stlId, k.config.text, "3mf")}
-                                        title="3MF med begge farver + filamentskift indbygget"
-                                        className="bg-purple-600 text-white text-xs px-3 py-2 rounded-xl font-semibold hover:bg-purple-700 transition-colors"
-                                      >
-                                        ⬇️ 3MF (farver)
-                                      </button>
-                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => downloadKeyringFile(k.stlId, k.config.text, "3mf")}
+                                      title="3MF med begge farver + filamentskift indbygget"
+                                      className="bg-purple-600 text-white text-xs px-3 py-2 rounded-xl font-semibold hover:bg-purple-700 transition-colors"
+                                    >
+                                      ⬇️ 3MF (farver)
+                                    </button>
                                     {k.stlGenerated ? (
                                       <button
                                         type="button"
