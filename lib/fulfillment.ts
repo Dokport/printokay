@@ -24,13 +24,11 @@ import {
   addOrder,
   findOrderBySession,
   saveStl,
-  save3mf,
   type Order,
   type OrderItem,
   type OrderCustomer,
 } from "./orders";
 import { generateKeyringStl } from "./stl";
-import { generateKeyring3mf } from "./keyring3mf";
 
 export type PendingCart = { items: CartItem[]; createdAt: string };
 
@@ -102,17 +100,8 @@ async function buildOrderItem(
     } catch (err) {
       console.error(`STL generation failed for ${stlId}:`, err);
     }
-
-    // Also emit a 2-colour 3MF (filament change embedded) — alongside the STL, so a
-    // failure here never blocks the order; the STL remains the fallback.
-    let threeMfGenerated = false;
-    try {
-      const threeMf = await generateKeyring3mf(config, size, kd.baseColorHex, kd.textColorHex);
-      await save3mf(stlId, threeMf);
-      threeMfGenerated = true;
-    } catch (err) {
-      console.error(`3MF generation failed for ${stlId}:`, err);
-    }
+    // The 2-colour 3MF is generated on demand (admin download / Bambuddy sync), so
+    // it always reflects the current format — nothing to pre-generate here.
 
     return {
       name: `Nøglering: "${kd.text}" (${kd.sizeLabel})`,
@@ -129,7 +118,6 @@ async function buildOrderItem(
         textFilamentName: kd.textFilamentName,
         stlId,
         stlGenerated,
-        threeMfGenerated,
       },
     };
   }

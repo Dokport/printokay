@@ -8,6 +8,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { readOrders } from "@/lib/orders";
+import { KEYRING_3MF_VERSION } from "@/lib/keyring3mf";
 import { isSyncAuthed } from "@/lib/isSyncAuthed";
 
 export async function GET(req: NextRequest) {
@@ -19,17 +20,20 @@ export async function GET(req: NextRequest) {
 
   const toUpload = orders.flatMap((o) =>
     o.items
-      .filter((it) => it.keyring && !it.keyring.bambuddySyncedAt)
+      // Upload if never synced, or if the 3MF format changed since it was last synced.
+      .filter((it) => it.keyring && (!it.keyring.bambuddySyncedAt || it.keyring.bambuddyFormatVersion !== KEYRING_3MF_VERSION))
       .map((it) => {
         const k = it.keyring!;
         const text = (k.config.text || "Nøglering").trim();
         return {
           stlId: k.stlId,
-          // A human-readable Bambuddy filename: text, size and short order id.
           name: `${text} (${k.size.label})`,
           orderId: o.id,
           folder: "Nøgleringe",
           downloadPath: `/api/sync/keyrings/${encodeURIComponent(k.stlId)}`,
+          // On a re-sync, the sidecar deletes this stale Bambuddy file first.
+          oldFileId: k.bambuddySyncedAt ? k.bambuddyFileId ?? null : null,
+          version: KEYRING_3MF_VERSION,
         };
       })
   );

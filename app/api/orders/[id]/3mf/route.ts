@@ -10,7 +10,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/isAdmin";
-import { readOrders, read3mf, save3mf, type OrderItemKeyring } from "@/lib/orders";
+import { readOrders, type OrderItemKeyring } from "@/lib/orders";
 import { generateKeyring3mf } from "@/lib/keyring3mf";
 
 export async function GET(
@@ -31,23 +31,16 @@ export async function GET(
     if (item?.keyring) { keyring = item.keyring; break; }
   }
 
-  let file = await read3mf(stlId);
-  if (!file) {
-    if (!keyring) {
-      return NextResponse.json({ error: "3MF-fil ikke fundet" }, { status: 404 });
-    }
-    try {
-      file = await generateKeyring3mf(
-        keyring.config,
-        keyring.size,
-        keyring.baseColorHex,
-        keyring.textColorHex
-      );
-      await save3mf(stlId, file); // cache for next time
-    } catch (err) {
-      console.error(`On-demand 3MF generation failed for ${stlId}:`, err);
-      return NextResponse.json({ error: "Kunne ikke generere 3MF" }, { status: 500 });
-    }
+  if (!keyring) {
+    return NextResponse.json({ error: "Nøglering ikke fundet" }, { status: 404 });
+  }
+  let file: Buffer;
+  try {
+    // Always generate fresh so the download reflects the current 3MF format.
+    file = await generateKeyring3mf(keyring.config, keyring.size, keyring.baseColorHex, keyring.textColorHex);
+  } catch (err) {
+    console.error(`3MF generation failed for ${stlId}:`, err);
+    return NextResponse.json({ error: "Kunne ikke generere 3MF" }, { status: 500 });
   }
 
   const text = keyring?.config.text ?? "noglering";

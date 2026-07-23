@@ -14,13 +14,14 @@ export type OrderItemKeyring = {
   textColorHex: string;
   baseFilamentName: string;
   textFilamentName: string;
-  stlId: string;          // file key: stl/{stlId}.stl (+ stl/{stlId}.3mf)
+  stlId: string;          // file key: stl/{stlId}.stl
   stlGenerated: boolean;
-  threeMfGenerated?: boolean; // a 2-colour 3MF was also saved (stl/{stlId}.3mf)
   // ── Bambuddy-synkronisering (sat af sidecaren, ligesom produkter) ──
-  bambuddyFileId?: string;    // uploaded 3MF's Bambuddy file id
+  // The 2-colour 3MF is generated on demand (never cached), so it's always current.
+  bambuddyFileId?: string;      // uploaded 3MF's Bambuddy file id
   bambuddyFolderId?: string;
   bambuddySyncedAt?: string;
+  bambuddyFormatVersion?: number; // 3MF format version last uploaded → triggers re-sync
 };
 
 export type OrderColorChoice = {
@@ -159,14 +160,4 @@ export async function saveStl(stlId: string, stl: Buffer): Promise<void> {
 
 export async function readStl(stlId: string): Promise<Buffer | null> {
   return readBinaryFile(`stl/${stlId}.stl`);
-}
-
-// ─── 3MF files (2-colour, filament changes embedded) ────────────────────────────
-
-export async function save3mf(stlId: string, threeMf: Buffer): Promise<void> {
-  await writeBinaryFile(`stl/${stlId}.3mf`, threeMf);
-}
-
-export async function read3mf(stlId: string): Promise<Buffer | null> {
-  return readBinaryFile(`stl/${stlId}.3mf`);
 }

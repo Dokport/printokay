@@ -587,6 +587,12 @@ async function syncKeyrings() {
 
   for (const k of toUpload) {
     try {
+      // Re-sync (format changed): delete the stale Bambuddy file first, so we replace
+      // rather than duplicate it.
+      if (k.oldFileId) {
+        try { await bam(`${cfg.filesPath}/${k.oldFileId}`, { method: "DELETE" }); }
+        catch (e) { err(`nøglering: kunne ikke slette gammel fil ${k.oldFileId}:`, e.message); }
+      }
       const safe = (k.name || "Nøglering").replace(/[^a-zA-Z0-9æøåÆØÅ._ ()-]/g, "_").trim() || "Nøglering";
       const fileId = await uploadFileFromShop(k.downloadPath, `${safe}.3mf`, folder.id);
       await shop("/api/sync/keyrings/done", {
