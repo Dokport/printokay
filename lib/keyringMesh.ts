@@ -539,23 +539,23 @@ export function buildKeyringMesh(
       const marginMm = Math.min(size.widthMm, size.heightMm) * 0.16;
       const neckHalf = TAB_RADIUS_MM * 0.65;
 
-      // Place the hole over the SOLID part of the text nearest the centre (never over a
-      // gap between letters, whatever the font), and weld it on with a short neck — so
-      // the tab is always solidly connected to the plate. `ridge` = the boundary points
-      // that reach the top (top hole) / left (side hole) edge.
+      // Centre the hole (top → horizontal centre; side → vertical centre) and weld it
+      // on with a neck that reaches the material DIRECTLY beneath/beside it — so it's
+      // both centred AND solidly connected, even when the middle letters are low (e.g.
+      // "Lennart" in a cursive font, where only L and t reach the top).
       let neck: P2[];
       if (holePosition === "side") {
-        const cY = (minY + maxY) / 2;
-        const ridge = allPts.filter((p) => p.x <= minX + 1.5);
-        holeCY = ridge.reduce((b, p) => (Math.abs(p.y - cY) < Math.abs(b - cY) ? p.y : b), ridge[0]?.y ?? cY);
-        holeCX = minX - TAB_CLEARANCE_MM - TAB_RADIUS_MM;
-        neck = rect(holeCX, holeCY - neckHalf, minX + 2, holeCY + neckHalf);
+        holeCY = (minY + maxY) / 2;
+        const beside = allPts.filter((p) => Math.abs(p.y - holeCY) <= neckHalf + 2);
+        const leftAtCentre = beside.length ? Math.min(...beside.map((p) => p.x)) : minX;
+        holeCX = leftAtCentre - TAB_CLEARANCE_MM - TAB_RADIUS_MM;
+        neck = rect(holeCX, holeCY - neckHalf, leftAtCentre + 2, holeCY + neckHalf);
       } else {
-        const cX = (minX + maxX) / 2;
-        const ridge = allPts.filter((p) => p.y >= maxY - 1.5);
-        holeCX = ridge.reduce((b, p) => (Math.abs(p.x - cX) < Math.abs(b - cX) ? p.x : b), ridge[0]?.x ?? cX);
+        holeCX = (minX + maxX) / 2;
         holeCY = maxY + TAB_CLEARANCE_MM + TAB_RADIUS_MM;
-        neck = rect(holeCX - neckHalf, holeCY, holeCX + neckHalf, maxY - 2);
+        const beneath = allPts.filter((p) => Math.abs(p.x - holeCX) <= neckHalf + 2);
+        const topAtCentre = beneath.length ? Math.max(...beneath.map((p) => p.y)) : maxY;
+        neck = rect(holeCX - neckHalf, holeCY, holeCX + neckHalf, topAtCentre - 2);
       }
       const tab = circle(holeCX, holeCY, TAB_RADIUS_MM);
       body = bubbleAround([...groups.map((g) => g.outer), tab, neck], marginMm)
