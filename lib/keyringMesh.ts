@@ -345,6 +345,13 @@ function circle(cx: number, cy: number, r: number, steps = 64): P2[] {
   });
 }
 
+/** Axis-aligned rectangle polygon (CCW), from any two opposite corners. */
+function rect(x0: number, y0: number, x1: number, y1: number): P2[] {
+  const xa = Math.min(x0, x1), xb = Math.max(x0, x1);
+  const ya = Math.min(y0, y1), yb = Math.max(y0, y1);
+  return [{ x: xa, y: ya }, { x: xb, y: ya }, { x: xb, y: yb }, { x: xa, y: yb }];
+}
+
 /** True only if the whole disc (center + perimeter samples) lies inside poly. */
 function circleInside(cx: number, cy: number, r: number, poly: P2[], samples = 24): boolean {
   if (!pointInPolygon({ x: cx, y: cy }, poly)) return false;
@@ -525,20 +532,33 @@ export function buildKeyringMesh(
     const groups = groupByDepth(cleanUnion(rawContours));
     if (groups.length) {
       const allPts = groups.flatMap((g) => g.outer);
+      const minX = Math.min(...allPts.map((p) => p.x));
+      const maxX = Math.max(...allPts.map((p) => p.x));
+      const minY = Math.min(...allPts.map((p) => p.y));
+      const maxY = Math.max(...allPts.map((p) => p.y));
+      const marginMm = Math.min(size.widthMm, size.heightMm) * 0.16;
+      const neckHalf = TAB_RADIUS_MM * 0.65;
+
+      // Place the hole over the SOLID part of the text nearest the centre (never over a
+      // gap between letters, whatever the font), and weld it on with a short neck — so
+      // the tab is always solidly connected to the plate. `ridge` = the boundary points
+      // that reach the top (top hole) / left (side hole) edge.
+      let neck: P2[];
       if (holePosition === "side") {
-        const leftX = Math.min(...allPts.map((p) => p.x));
-        const minY  = Math.min(...allPts.map((p) => p.y));
-        const maxY  = Math.max(...allPts.map((p) => p.y));
-        holeCX = leftX - TAB_CLEARANCE_MM - TAB_RADIUS_MM;
-        holeCY = (minY + maxY) / 2;
+        const cY = (minY + maxY) / 2;
+        const ridge = allPts.filter((p) => p.x <= minX + 1.5);
+        holeCY = ridge.reduce((b, p) => (Math.abs(p.y - cY) < Math.abs(b - cY) ? p.y : b), ridge[0]?.y ?? cY);
+        holeCX = minX - TAB_CLEARANCE_MM - TAB_RADIUS_MM;
+        neck = rect(holeCX, holeCY - neckHalf, minX + 2, holeCY + neckHalf);
       } else {
-        const topY = Math.max(...allPts.map((p) => p.y));
-        holeCX = 0;
-        holeCY = topY + TAB_CLEARANCE_MM + TAB_RADIUS_MM;
+        const cX = (minX + maxX) / 2;
+        const ridge = allPts.filter((p) => p.y >= maxY - 1.5);
+        holeCX = ridge.reduce((b, p) => (Math.abs(p.x - cX) < Math.abs(b - cX) ? p.x : b), ridge[0]?.x ?? cX);
+        holeCY = maxY + TAB_CLEARANCE_MM + TAB_RADIUS_MM;
+        neck = rect(holeCX - neckHalf, holeCY, holeCX + neckHalf, maxY - 2);
       }
       const tab = circle(holeCX, holeCY, TAB_RADIUS_MM);
-      const marginMm = Math.min(size.widthMm, size.heightMm) * 0.16;
-      body = bubbleAround([...groups.map((g) => g.outer), tab], marginMm)
+      body = bubbleAround([...groups.map((g) => g.outer), tab, neck], marginMm)
         ?? getShapePolygon("auto", size.widthMm, size.heightMm);
     } else {
       body = getShapePolygon("auto", size.widthMm, size.heightMm);
