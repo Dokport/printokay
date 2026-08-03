@@ -2,7 +2,7 @@
  * Admin-only test endpoint: generate a keyring STL without going through Stripe.
  * Returns the binary STL file directly.
  *
- * 2-color printing: in BambuStudio add a filament change at Z = 2.4mm.
+ * 2-color printing: in BambuStudio add a filament change at the base height.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/isAdmin";

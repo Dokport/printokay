@@ -3,7 +3,7 @@
  *
  * Where lib/stl.ts emits a single-colour STL, this emits a 3MF split into two colour
  * regions with the filament change embedded, so BambuStudio slices it in two colours
- * (no manual filament change at Z=2.4mm):
+ * (no manual filament change at the base height):
  *
  *   - keyring body   (0 → BASE_HEIGHT_MM)         → filament 1 (base)
  *   - raised text    (BASE_HEIGHT_MM → TOTAL)     → filament 2 (text)

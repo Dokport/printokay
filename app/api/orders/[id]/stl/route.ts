@@ -4,7 +4,8 @@
  * The `id` path segment is the item's stlId (order id + item index, or the
  * order id itself for legacy single-keyring orders).
  *
- * 2-color printing: in BambuStudio add a filament change at Z = 2.4mm.
+ * 2-color printing: in BambuStudio add a filament change at the base height
+ * (or use the 3MF, which has it embedded).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/isAdmin";

@@ -35,9 +35,9 @@ const earcut: (data: number[], holes?: number[], dim?: number) => number[] =
 
 // ─── Print geometry constants ─────────────────────────────────────────────────
 
-export const BASE_HEIGHT_MM   = 2.4;  // keyring body height
+export const BASE_HEIGHT_MM   = 3.2;  // keyring body height
 export const TEXT_HEIGHT_MM    = 0.8;  // raised text above body
-export const TOTAL_HEIGHT_MM   = BASE_HEIGHT_MM + TEXT_HEIGHT_MM;
+export const TOTAL_HEIGHT_MM   = BASE_HEIGHT_MM + TEXT_HEIGHT_MM; // 4.0mm incl. text
 const HOLE_RADIUS_MM    = 2.5;  // ring attachment hole radius
 const TAB_RADIUS_MM     = HOLE_RADIUS_MM + 1.8; // solid nub around the hole (wall ≈1.8mm)
 const TAB_CLEARANCE_MM  = 1.0;  // gap between tallest letter and tab circle
