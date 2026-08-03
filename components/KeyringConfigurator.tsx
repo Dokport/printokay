@@ -17,6 +17,24 @@ import type { KeyringSizeOption, KeyringSettings } from "@/lib/keyring";
 import type { FilamentSpool } from "@/lib/settings";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 
+function hexToRgb(h: string): [number, number, number] {
+  const s = h.replace("#", "");
+  return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16), parseInt(s.slice(4, 6), 16)];
+}
+
+// Nearest in-stock filament to a target hex (squared RGB distance), excluding an id.
+function nearestFilamentId(hex: string, fils: FilamentSpool[], excludeId?: string): string | undefined {
+  const t = hexToRgb(hex);
+  let best: FilamentSpool | null = null, bd = Infinity;
+  for (const f of fils) {
+    if (f.id === excludeId) continue;
+    const c = hexToRgb(f.colorHex);
+    const d = (c[0] - t[0]) ** 2 + (c[1] - t[1]) ** 2 + (c[2] - t[2]) ** 2;
+    if (d < bd) { bd = d; best = f; }
+  }
+  return best?.id;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Settings = {
@@ -342,10 +360,13 @@ export default function KeyringConfigurator() {
           keyring,
           filaments,
         });
-        // Pick sensible defaults once settings arrive
+        // Pick sensible defaults once settings arrive: base = nearest black, text =
+        // nearest white (in stock), falling back to whatever's available.
         setSizeId((prev) => prev ?? keyring.sizes?.[1]?.id ?? keyring.sizes?.[0]?.id ?? null);
-        setBaseFilamentId((prev) => prev || inStock[0]?.id || "");
-        setTextFilamentId((prev) => prev || inStock[1]?.id || inStock[0]?.id || "");
+        const defaultBase = nearestFilamentId("#000000", inStock) || inStock[0]?.id || "";
+        const defaultText = nearestFilamentId("#FFFFFF", inStock, defaultBase) || inStock[1]?.id || inStock[0]?.id || "";
+        setBaseFilamentId((prev) => prev || defaultBase);
+        setTextFilamentId((prev) => prev || defaultText);
       })
       .catch(() => {});
   }, []);
