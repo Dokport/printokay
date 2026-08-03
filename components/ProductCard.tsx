@@ -41,7 +41,8 @@ function nearestFilamentId(hex: string | undefined, fils: FilamentSpool[]): stri
 
 // Default filament per slot = nearest in-stock filament to the model's zone colour.
 function computeDefaultChoices(product: Product, filaments: FilamentSpool[]): Record<string, string> {
-  const avail = filaments.filter((f) => f.inStock && (!product.material || f.material === product.material));
+  // Shop only offers PLA for now (filament inventory / type selection is being reworked).
+  const avail = filaments.filter((f) => f.inStock && f.material === "PLA");
   const out: Record<string, string> = {};
   for (const z of product.colorZones ?? []) {
     if (out[z.slotId]) continue;
@@ -87,10 +88,8 @@ export default function ProductCard({
   const slots = product.colorSlots ?? [];
   const hasSlots = slots.length > 0;
 
-  // In-stock filaments matching product material (or all if no material set)
-  const availableFilaments = filaments.filter(
-    (f) => f.inStock && (!product.material || f.material === product.material)
-  );
+  // Shop only offers PLA for now (filament inventory / type selection is being reworked).
+  const availableFilaments = filaments.filter((f) => f.inStock && f.material === "PLA");
 
   const has3D = !!product.modelFile && (product.colorZones?.length ?? 0) > 0;
   const customizable = hasSlots && availableFilaments.length > 0;

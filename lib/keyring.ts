@@ -13,7 +13,6 @@ export type KeyringSizeOption = {
 export type KeyringSettings = {
   enabled: boolean;
   sizes: KeyringSizeOption[];
-  twoColorSurcharge: number; // i øre, fx 2000
 };
 
 export type KeyringConfig = {
@@ -37,12 +36,12 @@ export type ValidationResult = {
 
 export const DEFAULT_KEYRING_SETTINGS: KeyringSettings = {
   enabled: true,
+  // Always 2-colour; basePrice is the all-in price (no separate surcharge).
   sizes: [
-    { id: "small",  label: "Lille",  widthMm: 45, heightMm: 20, basePrice: 5900 },
-    { id: "medium", label: "Mellem", widthMm: 60, heightMm: 28, basePrice: 7900 },
-    { id: "large",  label: "Stor",   widthMm: 80, heightMm: 35, basePrice: 9900 },
+    { id: "small",  label: "Lille",  widthMm: 45, heightMm: 20, basePrice: 7900 },
+    { id: "medium", label: "Mellem", widthMm: 60, heightMm: 28, basePrice: 9900 },
+    { id: "large",  label: "Stor",   widthMm: 80, heightMm: 35, basePrice: 11900 },
   ],
-  twoColorSurcharge: 2000,
 };
 
 export const KEYRING_FONTS = [
@@ -64,12 +63,9 @@ export const KEYRING_HOLE_POSITIONS = [
 
 // ─── Price calculation ────────────────────────────────────────────────────────
 
-export function calcPrice(
-  size: KeyringSizeOption,
-  twoColors: boolean,
-  surcharge: number
-): number {
-  return size.basePrice + (twoColors ? surcharge : 0);
+// Keyrings are always 2-colour now, so the price is simply the size's (all-in) price.
+export function calcPrice(size: KeyringSizeOption): number {
+  return size.basePrice;
 }
 
 // ─── Font size calculation ────────────────────────────────────────────────────

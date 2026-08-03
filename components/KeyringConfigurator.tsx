@@ -335,7 +335,8 @@ export default function KeyringConfigurator() {
       .then((data) => {
         const keyring = data.keyring ?? DEFAULT_KEYRING_SETTINGS;
         const filaments: FilamentSpool[] = data.filaments ?? [];
-        const inStock = filaments.filter((f: FilamentSpool) => f.inStock);
+        // Shop only offers PLA for now — default the pickers to PLA spools too.
+        const inStock = filaments.filter((f: FilamentSpool) => f.inStock && f.material === "PLA");
         setSettings({
           primaryColor: data.primaryColor ?? DEFAULT_SETTINGS.primaryColor,
           keyring,
@@ -351,14 +352,13 @@ export default function KeyringConfigurator() {
 
   const { primaryColor, keyring, filaments } = settings;
   const sizes = keyring.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes;
-  const surcharge = keyring.twoColorSurcharge ?? 2000;
-  const inStockFilaments = filaments.filter((f) => f.inStock);
+  // Shop only offers PLA for now (filament inventory / type selection is being reworked).
+  const inStockFilaments = filaments.filter((f) => f.inStock && f.material === "PLA");
 
   const selectedSize = sizes.find((s) => s.id === sizeId) ?? null;
   const baseFil = filaments.find((f) => f.id === baseFilamentId);
   const textFil = filaments.find((f) => f.id === textFilamentId);
-  const twoColors = !!(baseFilamentId && textFilamentId && baseFilamentId !== textFilamentId);
-  const price = selectedSize ? calcPrice(selectedSize, twoColors, surcharge) : null;
+  const price = selectedSize ? calcPrice(selectedSize) : null;
 
   const validation = validateConfig(
     {
@@ -483,7 +483,6 @@ export default function KeyringConfigurator() {
           <label className="text-sm font-semibold text-gray-700 mb-2 block">Størrelse</label>
           <div className="grid grid-cols-3 gap-2">
             {sizes.map((size) => {
-              const sizePrice = calcPrice(size, twoColors, surcharge);
               const isSelected = sizeId === size.id;
               return (
                 <button
@@ -499,7 +498,7 @@ export default function KeyringConfigurator() {
                   <span className="font-bold text-sm" style={{ color: isSelected ? primaryColor : "#374151" }}>
                     {size.label}
                   </span>
-                  <span className="text-xs text-gray-400">{size.widthMm}×{size.heightMm}mm</span>
+                  <span className="text-xs text-gray-400">{size.widthMm} mm lang</span>
                   <span className="text-xs font-semibold mt-1" style={{ color: primaryColor }}>
                     {(size.basePrice / 100).toFixed(0)} kr
                   </span>
@@ -637,15 +636,9 @@ export default function KeyringConfigurator() {
         {selectedSize && (
           <div className="rounded-2xl border border-gray-100 bg-white p-4 flex flex-col gap-1.5">
             <div className="flex justify-between text-sm text-gray-600">
-              <span>Basispris ({selectedSize.label})</span>
+              <span>Pris ({selectedSize.label})</span>
               <span>{(selectedSize.basePrice / 100).toFixed(0)} kr</span>
             </div>
-            {twoColors && (
-              <div className="flex justify-between text-sm text-gray-600">
-                <span>2-farve tillæg</span>
-                <span>+{(surcharge / 100).toFixed(0)} kr</span>
-              </div>
-            )}
             <div className="border-t border-gray-100 mt-1 pt-2 flex justify-between font-bold text-base" style={{ color: primaryColor }}>
               <span>I alt</span>
               <span>{price ? `${(price / 100).toFixed(0)} kr` : "—"}</span>

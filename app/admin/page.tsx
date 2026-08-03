@@ -1355,7 +1355,7 @@ export default function AdminPage() {
               {(settings.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).map((size, i) => (
                 <div key={size.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
                   <span className="font-medium text-gray-700 w-20">{size.label}</span>
-                  <span className="text-xs text-gray-400">{size.widthMm}×{size.heightMm}mm</span>
+                  <span className="text-xs text-gray-400">{size.widthMm} mm lang</span>
                   <div className="flex items-center gap-2 ml-auto">
                     <label className="text-xs text-gray-500">Pris (kr):</label>
                     <input
@@ -1381,26 +1381,7 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
-            <div className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3 mb-4">
-              <span className="font-medium text-gray-700">2-farve tillæg</span>
-              <div className="flex items-center gap-2 ml-auto">
-                <label className="text-xs text-gray-500">Tillæg (kr):</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={((settings.keyring?.twoColorSurcharge ?? DEFAULT_KEYRING_SETTINGS.twoColorSurcharge) / 100).toFixed(0)}
-                  onChange={(e) => {
-                    const val = Math.round(parseFloat(e.target.value) * 100) || 0;
-                    setSettings((s) => ({
-                      ...s,
-                      keyring: { ...(s.keyring ?? DEFAULT_KEYRING_SETTINGS), twoColorSurcharge: val },
-                    }));
-                  }}
-                  className="w-20 border border-gray-200 rounded-xl px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 text-right"
-                />
-              </div>
-            </div>
+            <p className="text-xs text-gray-400 mb-4">Prisen er all-in (altid 2 farver) — intet særskilt farvetillæg.</p>
             <button
               type="button"
               disabled={settingsSaving}

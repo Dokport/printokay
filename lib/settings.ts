@@ -23,7 +23,6 @@ export type KeyringSizeOption = {
 export type KeyringSettings = {
   enabled: boolean;
   sizes: KeyringSizeOption[];
-  twoColorSurcharge: number; // i øre
 };
 
 export type ShippingOption = {
@@ -84,12 +83,12 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   filaments: [],
   keyring: {
     enabled: true,
+    // Always 2-colour; basePrice is the all-in price (no separate surcharge).
     sizes: [
-      { id: "small",  label: "Lille",  widthMm: 45, heightMm: 20, basePrice: 5900 },
-      { id: "medium", label: "Mellem", widthMm: 60, heightMm: 28, basePrice: 7900 },
-      { id: "large",  label: "Stor",   widthMm: 80, heightMm: 35, basePrice: 9900 },
+      { id: "small",  label: "Lille",  widthMm: 45, heightMm: 20, basePrice: 7900 },
+      { id: "medium", label: "Mellem", widthMm: 60, heightMm: 28, basePrice: 9900 },
+      { id: "large",  label: "Stor",   widthMm: 80, heightMm: 35, basePrice: 11900 },
     ],
-    twoColorSurcharge: 2000,
   },
 };
 
