@@ -39,7 +39,7 @@ export const BASE_HEIGHT_MM   = 2.4;  // keyring body height
 export const TEXT_HEIGHT_MM    = 0.8;  // raised text above body
 export const TOTAL_HEIGHT_MM   = BASE_HEIGHT_MM + TEXT_HEIGHT_MM;
 const HOLE_RADIUS_MM    = 2.5;  // ring attachment hole radius
-const TAB_RADIUS_MM     = HOLE_RADIUS_MM + 3.0; // solid nub around the hole
+const TAB_RADIUS_MM     = HOLE_RADIUS_MM + 1.8; // solid nub around the hole (wall ≈1.8mm)
 const TAB_CLEARANCE_MM  = 1.0;  // gap between tallest letter and tab circle
 
 const SCALE = 1000; // mm → clipper integer coordinates
@@ -445,6 +445,51 @@ function fitContoursToRegion(contours: P2[][], region: Region): P2[][] {
 
 // ─── Mesh builder ─────────────────────────────────────────────────────────────
 
+/** Overall X-extent of a set of contours. */
+function contoursWidth(contours: P2[][]): number {
+  let minX = Infinity, maxX = -Infinity;
+  for (const c of contours) for (const p of c) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+  }
+  return maxX - minX;
+}
+
+/** Uniformly scale contours about their centre. */
+function scaleContoursAboutCenter(contours: P2[][], s: number): P2[][] {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const c of contours) for (const p of c) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  return contours.map((c) => c.map((p) => ({ x: (p.x - cx) * s + cx, y: (p.y - cy) * s + cy })));
+}
+
+/**
+ * Uniformly scale a mesh in X/Y (keeping Z = print height) about its centre so its
+ * overall width becomes `targetWidth`. Used for "auto" keyrings so every name comes
+ * out at the advertised width regardless of length (height follows the aspect ratio).
+ */
+function scaleMeshToWidth(mesh: KeyringMesh, targetWidth: number): KeyringMesh {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const grp of [mesh.base, mesh.text]) for (const t of grp) for (const v of t) {
+    if (v[0] < minX) minX = v[0];
+    if (v[0] > maxX) maxX = v[0];
+    if (v[1] < minY) minY = v[1];
+    if (v[1] > maxY) maxY = v[1];
+  }
+  const w = maxX - minX;
+  if (!(w > 0)) return mesh;
+  const s = targetWidth / w;
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const scaleTri = (t: Tri): Tri =>
+    t.map((v) => [(v[0] - cx) * s + cx, (v[1] - cy) * s + cy, v[2]]) as Tri;
+  return { base: mesh.base.map(scaleTri), text: mesh.text.map(scaleTri) };
+}
+
 /**
  * Build the keyring mesh from raw text contours, split into base + text groups.
  * Triangles are NOT T-junction-repaired here; the STL path repairs the combined
@@ -456,6 +501,18 @@ export function buildKeyringMesh(
   size: KeyringSizeOption
 ): KeyringMesh {
   const holePosition = config.holePosition ?? "top";
+
+  // "auto" = consistent width: size the text to fill the advertised width up front,
+  // so the fixed hole-tab stays proportional and the ring doesn't come out oddly tall
+  // for short names. (The incoming fontSize is height-capped, which would otherwise
+  // make short names' text too small relative to the tab.) A final width-normalisation
+  // at the end makes the overall footprint exactly the advertised width.
+  if (config.shapeType === "auto") {
+    const marginMm = Math.min(size.widthMm, size.heightMm) * 0.16;
+    const targetTextWidth = Math.max(5, size.widthMm - 2 * marginMm);
+    const cw = contoursWidth(rawContours);
+    if (cw > 0) rawContours = scaleContoursAboutCenter(rawContours, targetTextWidth / cw);
+  }
 
   // Determine the body outline, ring-hole position, and the (possibly re-fitted)
   // text contours. AUTO wraps a bubble around the text; templates (heart/oval)
@@ -545,5 +602,9 @@ export function buildKeyringMesh(
     text.push(...faceTriangles(g.outer, g.holes, TOTAL_HEIGHT_MM, true));
   }
 
-  return { base, text };
+  const mesh = { base, text };
+  // "auto" keyrings wrap tightly around the text, so their footprint depends on the
+  // name length. Normalise to the advertised width so every name comes out at a
+  // consistent, predictable width (templates already use fixed advertised dimensions).
+  return config.shapeType === "auto" ? scaleMeshToWidth(mesh, size.widthMm) : mesh;
 }
