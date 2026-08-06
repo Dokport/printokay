@@ -70,53 +70,65 @@ function bboxOf(tris: Tri[]) {
 
 const cm = (mm: number) => (mm / 10).toFixed(1).replace(".", ",");
 
+// ─── Scale reference: an ordinary house key ────────────────────────────────────
+
+// Sized like a typical house key: ~22mm bow across, ~46mm overall.
+const KEY_BOW_R = 8;      // bow ring centreline radius (mm)
+const KEY_BOW_TUBE = 3;   // bow thickness
+const KEY_BLADE_LEN = 35; // shank + blade
+const KEY_THICK = 2.2;
+
+/** Blade silhouette (along +X from the bow), with a few teeth cut into the underside. */
+function bladeShape(): THREE.Shape {
+  const s = new THREE.Shape();
+  const x0 = 0, x1 = KEY_BLADE_LEN;
+  s.moveTo(x0, -3);
+  s.lineTo(x0, 3);          // shank top
+  s.lineTo(x1 - 2, 3);
+  s.lineTo(x1, 1.5);        // tapered tip
+  s.lineTo(x1, -4);
+  // teeth along the bottom edge, back towards the bow
+  s.lineTo(x1 - 4, -4);
+  s.lineTo(x1 - 6, -1.5);
+  s.lineTo(x1 - 9, -4);
+  s.lineTo(x1 - 12, -1.5);
+  s.lineTo(x1 - 15, -4);
+  s.lineTo(x1 - 18, -2);
+  s.lineTo(x1 - 21, -4);
+  s.lineTo(x0 + 8, -4);
+  s.lineTo(x0 + 8, -3);     // step down to the narrower shank
+  s.closePath();
+  return s;
+}
+
 /**
- * A measuring stick beside the keyring: alternating 1 cm bands along the bottom and a
- * bracket marking the letter height. It lives in the same millimetre space as the
- * model, so it scales with it — a bigger keyring simply spans more centimetre bands,
- * which is what makes the three sizes visibly different. (The cm figures themselves
- * are rendered as HTML under the canvas: crisper at this size, and it keeps the
- * asynchronously-loaded 3D text out of the auto-framing.)
+ * A real-world size reference standing beside the keyring: an ordinary house key,
+ * modelled at its true ~57mm length. Because it shares the model's millimetre space,
+ * it makes the three sizes immediately readable — a Lille keyring is barely taller
+ * than the key's bow, a Stor one towers over it.
  */
-function Ruler({
-  ring,
-  letters,
-}: {
-  ring: ReturnType<typeof bboxOf>;
-  letters: ReturnType<typeof bboxOf> | null;
-}) {
-  const bands = Math.max(1, Math.ceil(ring.w / 10));
-  const y = ring.minY - 6; // sits just below the keyring
-  const tick = "#94a3b8";
+function ScaleKey({ ring }: { ring: ReturnType<typeof bboxOf> }) {
+  const blade = useMemo(() => {
+    const g = new THREE.ExtrudeGeometry(bladeShape(), { depth: KEY_THICK, bevelEnabled: false });
+    g.translate(0, 0, -KEY_THICK / 2);
+    return g;
+  }, []);
+  useEffect(() => () => blade.dispose(), [blade]);
+
+  // Stand it upright (blade pointing up), just left of the keyring, vertically centred.
+  const x = ring.minX - 8 - (KEY_BOW_R + KEY_BOW_TUBE);
+  const y = (ring.minY + ring.maxY) / 2;
 
   return (
-    <group>
-      {Array.from({ length: bands }, (_, i) => {
-        const w = Math.min(10, ring.w - i * 10);
-        if (w <= 0.01) return null;
-        return (
-          <mesh key={`b${i}`} position={[ring.minX + i * 10 + w / 2, y, 0]}>
-            <boxGeometry args={[w, 2, 0.6]} />
-            <meshStandardMaterial color={i % 2 ? "#e2e8f0" : "#94a3b8"} roughness={0.95} />
-          </mesh>
-        );
-      })}
-
-      {/* Letter-height bracket, aligned to the actual lettering */}
-      {letters && (
-        <group>
-          <mesh position={[ring.minX - 5, (letters.minY + letters.maxY) / 2, 0]}>
-            <boxGeometry args={[1, letters.h, 0.6]} />
-            <meshStandardMaterial color={tick} roughness={0.95} />
-          </mesh>
-          {[letters.minY, letters.maxY].map((ly, i) => (
-            <mesh key={i} position={[ring.minX - 3.5, ly, 0]}>
-              <boxGeometry args={[4, 1, 0.6]} />
-              <meshStandardMaterial color={tick} roughness={0.95} />
-            </mesh>
-          ))}
-        </group>
-      )}
+    <group position={[x, y, 0]} rotation={[0, 0, Math.PI / 2]}>
+      {/* Bow (the round head) — centred on the origin, blade runs along +X */}
+      <mesh rotation={[0, 0, 0]}>
+        <torusGeometry args={[KEY_BOW_R, KEY_BOW_TUBE, 12, 32]} />
+        <meshStandardMaterial color="#cdd3da" roughness={0.45} metalness={0.25} />
+      </mesh>
+      <mesh geometry={blade} position={[KEY_BOW_R - 1, 0, 0]}>
+        <meshStandardMaterial color="#cdd3da" roughness={0.45} metalness={0.25} />
+      </mesh>
     </group>
   );
 }
@@ -142,14 +154,12 @@ function KeyringMeshes({
   baseColor,
   textColor,
   ring,
-  letters,
 }: {
   base: THREE.BufferGeometry;
   text: THREE.BufferGeometry;
   baseColor: string;
   textColor: string;
   ring: ReturnType<typeof bboxOf>;
-  letters: ReturnType<typeof bboxOf> | null;
 }) {
   return (
     // Face the camera with a gentle 3/4 tilt so the raised text + thickness read,
@@ -161,7 +171,7 @@ function KeyringMeshes({
       <mesh geometry={text}>
         <meshStandardMaterial color={textColor} roughness={0.55} metalness={0.05} />
       </mesh>
-      <Ruler ring={ring} letters={letters} />
+      <ScaleKey ring={ring} />
     </group>
   );
 }
@@ -243,7 +253,7 @@ export default function KeyringPreview3D({
         <directionalLight position={[-50, -20, -40]} intensity={0.5} />
         <Bounds fit clip observe margin={1.25}>
           <KeyringMeshes base={geom.base} text={geom.text} baseColor={baseColor} textColor={textColor}
-                         ring={geom.ring} letters={geom.letters} />
+                         ring={geom.ring} />
         </Bounds>
         <OrbitControls
           makeDefault
@@ -255,21 +265,13 @@ export default function KeyringPreview3D({
       </Canvas>
     </div>
 
-    {/* Live size read-out — each band on the ruler above is 1 cm. */}
-    <div className="flex items-center justify-center gap-4 text-xs text-gray-500">
-      <span className="inline-flex items-center gap-1.5">
-        <span className="inline-flex h-2 w-8 overflow-hidden rounded-sm border border-gray-200">
-          <span className="h-full flex-1 bg-gray-400" />
-          <span className="h-full flex-1 bg-gray-200" />
-          <span className="h-full flex-1 bg-gray-400" />
-        </span>
-        Længde <strong className="text-gray-700">{cm(geom.ring.w)} cm</strong>
-      </span>
+    {/* Live size read-out; the key beside the model is a real one, for scale. */}
+    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-500">
+      <span>Længde <strong className="text-gray-700">{cm(geom.ring.w)} cm</strong></span>
       {geom.letters && (
-        <span>
-          Bogstaver <strong className="text-gray-700">{cm(geom.letters.h)} cm</strong>
-        </span>
+        <span>Teksthøjde <strong className="text-gray-700">{cm(geom.letters.h)} cm</strong></span>
       )}
+      <span className="text-gray-400">🔑 nøglen viser størrelsen</span>
     </div>
     </div>
   );
