@@ -26,7 +26,7 @@
 import ClipperLib from "clipper-lib";
 import earcutMod from "earcut";
 import type { KeyringConfig, KeyringSizeOption } from "./keyring";
-import { getShapePolygon } from "./keyring";
+import { getShapePolygon, MAX_RING_LENGTH_MM } from "./keyring";
 import type { Point } from "./textpaths";
 
 const earcut: (data: number[], holes?: number[], dim?: number) => number[] =
@@ -530,25 +530,12 @@ function scaleContoursAboutCenter(contours: P2[][], s: number): P2[][] {
 }
 
 /**
- * Uniformly scale a mesh in X/Y (keeping Z = print height) about its centre so its
- * overall width becomes `targetWidth`. Used for "auto" keyrings so every name comes
- * out at the advertised width regardless of length (height follows the aspect ratio).
+ * Plate margin around the lettering. Tied to the letter size (not the plate, which has
+ * no fixed size any more) so every size keeps the same visual proportions.
  */
-function scaleMeshToWidth(mesh: KeyringMesh, targetWidth: number): KeyringMesh {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const grp of [mesh.base, mesh.text]) for (const t of grp) for (const v of t) {
-    if (v[0] < minX) minX = v[0];
-    if (v[0] > maxX) maxX = v[0];
-    if (v[1] < minY) minY = v[1];
-    if (v[1] > maxY) maxY = v[1];
-  }
-  const w = maxX - minX;
-  if (!(w > 0)) return mesh;
-  const s = targetWidth / w;
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  const scaleTri = (t: Tri): Tri =>
-    t.map((v) => [(v[0] - cx) * s + cx, (v[1] - cy) * s + cy, v[2]]) as Tri;
-  return { base: mesh.base.map(scaleTri), text: mesh.text.map(scaleTri) };
+function autoMargin(size: KeyringSizeOption): number {
+  const cap = size.textHeightMm || 14;
+  return cap * 0.32;
 }
 
 /**
@@ -563,16 +550,18 @@ export function buildKeyringMesh(
 ): KeyringMesh {
   const holePosition = config.holePosition ?? "top";
 
-  // "auto" = consistent width: size the text to fill the advertised width up front,
-  // so the fixed hole-tab stays proportional and the ring doesn't come out oddly tall
-  // for short names. (The incoming fontSize is height-capped, which would otherwise
-  // make short names' text too small relative to the tab.) A final width-normalisation
-  // at the end makes the overall footprint exactly the advertised width.
+  // "auto" = consistent LETTER size: the text arrives already scaled to the size's
+  // advertised cap height, and the plate just grows around it — so a short name gives
+  // a short keyring and a long one a long keyring, with identical lettering. Only the
+  // printable-length limit can shrink it, and only for very long names.
   if (config.shapeType === "auto") {
-    const marginMm = Math.min(size.widthMm, size.heightMm) * 0.16;
-    const targetTextWidth = Math.max(5, size.widthMm - 2 * marginMm);
     const cw = contoursWidth(rawContours);
-    if (cw > 0) rawContours = scaleContoursAboutCenter(rawContours, targetTextWidth / cw);
+    // Worst case the tab sits at one end (side hole), so reserve room for both.
+    const allowance = 2 * autoMargin(size) + TAB_CLEARANCE_MM + 2 * TAB_RADIUS_MM;
+    const maxTextWidth = MAX_RING_LENGTH_MM - allowance;
+    if (cw > maxTextWidth && maxTextWidth > 0) {
+      rawContours = scaleContoursAboutCenter(rawContours, maxTextWidth / cw);
+    }
   }
 
   // Determine the body outline, ring-hole position, and the (possibly re-fitted)
@@ -590,7 +579,7 @@ export function buildKeyringMesh(
       const maxX = Math.max(...allPts.map((p) => p.x));
       const minY = Math.min(...allPts.map((p) => p.y));
       const maxY = Math.max(...allPts.map((p) => p.y));
-      const marginMm = Math.min(size.widthMm, size.heightMm) * 0.16;
+      const marginMm = autoMargin(size);
       const neckHalf = TAB_RADIUS_MM * 0.65;
 
       // The hole always sits clear of ALL text (left of / above everything), and a neck
@@ -695,9 +684,7 @@ export function buildKeyringMesh(
     text.push(...faceTriangles(g.outer, g.holes, TOTAL_HEIGHT_MM, true));
   }
 
-  const mesh = { base, text };
-  // "auto" keyrings wrap tightly around the text, so their footprint depends on the
-  // name length. Normalise to the advertised width so every name comes out at a
-  // consistent, predictable width (templates already use fixed advertised dimensions).
-  return config.shapeType === "auto" ? scaleMeshToWidth(mesh, size.widthMm) : mesh;
+  // No post-scaling: the lettering is already at its advertised size, and leaving the
+  // mesh alone keeps the ring hole at its true 5mm diameter for every name.
+  return { base, text };
 }

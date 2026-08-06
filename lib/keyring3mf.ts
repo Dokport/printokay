@@ -23,7 +23,7 @@
  */
 
 import { zipSync, strToU8 } from "fflate";
-import type { KeyringConfig, KeyringSizeOption } from "./keyring";
+import { calcFontSize, type KeyringConfig, type KeyringSizeOption } from "./keyring";
 import { extractTextContours } from "./textpaths.server";
 import { buildKeyringMesh, repairTJunctions, BASE_HEIGHT_MM, type Tri, type Vec3 } from "./keyringMesh";
 
@@ -84,7 +84,7 @@ export async function generateKeyring3mf(
 ): Promise<Buffer> {
   const fontSize = config.fontSize > 0
     ? config.fontSize
-    : Math.min(size.widthMm, size.heightMm) * 0.5;
+    : calcFontSize(config.text, config.font, size) ?? 20;
 
   const rawContours = extractTextContours(config.text, config.font, fontSize);
   const { base, text } = buildKeyringMesh(rawContours, config, size);

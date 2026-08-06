@@ -1355,7 +1355,7 @@ export default function AdminPage() {
               {(settings.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).map((size, i) => (
                 <div key={size.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
                   <span className="font-medium text-gray-700 w-20">{size.label}</span>
-                  <span className="text-xs text-gray-400">{size.widthMm} mm lang</span>
+                  <span className="text-xs text-gray-400">{size.textHeightMm} mm bogstaver</span>
                   <div className="flex items-center gap-2 ml-auto">
                     <label className="text-xs text-gray-500">Pris (kr):</label>
                     <input

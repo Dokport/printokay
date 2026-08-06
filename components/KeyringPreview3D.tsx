@@ -18,7 +18,7 @@ import * as THREE from "three";
 import { parse } from "opentype.js";
 import { contoursFromFont, type OpenTypeFontLike } from "@/lib/textpaths";
 import { buildKeyringMesh, type Tri } from "@/lib/keyringMesh";
-import type { KeyringConfig, KeyringSizeOption } from "@/lib/keyring";
+import { calcFontSize, type KeyringConfig, type KeyringSizeOption } from "@/lib/keyring";
 
 // ─── Font loading (browser): fetch + parse once per font id, cached ────────────
 
@@ -123,7 +123,7 @@ export default function KeyringPreview3D({
   const geom = useMemo(() => {
     if (!fontObj || !size || !text.trim()) return null;
     try {
-      const fs = fontSize > 0 ? fontSize : Math.min(size.widthMm, size.heightMm) * 0.5;
+      const fs = fontSize > 0 ? fontSize : calcFontSize(text, font, size) ?? 20;
       const contours = contoursFromFont(fontObj, text, fs);
       const config = { text, font, shapeType, holePosition, sizeId: size.id } as KeyringConfig;
       const { base, text: textTris } = buildKeyringMesh(contours, config, size);

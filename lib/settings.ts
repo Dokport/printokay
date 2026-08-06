@@ -13,11 +13,12 @@ export type FilamentSpool = {
 };
 
 export type KeyringSizeOption = {
-  id: string;        // "small" | "medium" | "large"
-  label: string;     // "Lille", "Mellem", "Stor"
-  widthMm: number;
-  heightMm: number;
-  basePrice: number; // i øre
+  id: string;         // "small" | "medium" | "large"
+  label: string;      // "Lille", "Mellem", "Stor"
+  textHeightMm: number; // the advertised size: capital-letter height
+  widthMm: number;    // plate size for the template shapes (heart/oval) only
+  heightMm: number;   // plate size for the template shapes (heart/oval) only
+  basePrice: number;  // i øre
 };
 
 export type KeyringSettings = {
@@ -85,9 +86,9 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     enabled: true,
     // Always 2-colour; basePrice is the all-in price (no separate surcharge).
     sizes: [
-      { id: "small",  label: "Lille",  widthMm: 45, heightMm: 20, basePrice: 7900 },
-      { id: "medium", label: "Mellem", widthMm: 60, heightMm: 28, basePrice: 9900 },
-      { id: "large",  label: "Stor",   widthMm: 80, heightMm: 35, basePrice: 11900 },
+      { id: "small",  label: "Lille",  textHeightMm: 10, widthMm: 45, heightMm: 20, basePrice: 7900 },
+      { id: "medium", label: "Mellem", textHeightMm: 14, widthMm: 60, heightMm: 28, basePrice: 9900 },
+      { id: "large",  label: "Stor",   textHeightMm: 18, widthMm: 80, heightMm: 35, basePrice: 11900 },
     ],
   },
 };

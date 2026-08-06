@@ -5,8 +5,16 @@ import { FilamentSpool } from "./settings";
 export type KeyringSizeOption = {
   id: string;        // "small" | "medium" | "large"
   label: string;     // "Lille", "Mellem", "Stor"
-  widthMm: number;
-  heightMm: number;
+  /**
+   * The advertised size: the height of a capital letter, in mm. This is what the
+   * customer is promised and what makes the sizes comparable — the plate simply grows
+   * around the text, so a short name gives a short keyring and a long name a long one,
+   * with identical lettering. (Plate width/height can't be advertised meaningfully:
+   * name lengths vary far too much.)
+   */
+  textHeightMm: number;
+  widthMm: number;   // plate size for the template shapes (heart/oval) only
+  heightMm: number;  // plate size for the template shapes (heart/oval) only
   basePrice: number; // i øre, fx 5900
 };
 
@@ -38,10 +46,31 @@ export const DEFAULT_KEYRING_SETTINGS: KeyringSettings = {
   enabled: true,
   // Always 2-colour; basePrice is the all-in price (no separate surcharge).
   sizes: [
-    { id: "small",  label: "Lille",  widthMm: 45, heightMm: 20, basePrice: 7900 },
-    { id: "medium", label: "Mellem", widthMm: 60, heightMm: 28, basePrice: 9900 },
-    { id: "large",  label: "Stor",   widthMm: 80, heightMm: 35, basePrice: 11900 },
+    { id: "small",  label: "Lille",  textHeightMm: 10, widthMm: 45, heightMm: 20, basePrice: 7900 },
+    { id: "medium", label: "Mellem", textHeightMm: 14, widthMm: 60, heightMm: 28, basePrice: 9900 },
+    { id: "large",  label: "Stor",   textHeightMm: 18, widthMm: 80, heightMm: 35, basePrice: 11900 },
   ],
+};
+
+/**
+ * Capital-letter height as a fraction of the font's em size, measured from the actual
+ * font files. Lets a given `textHeightMm` render the same visual letter size in every
+ * font (Pacifico's capitals fill much more of the em than Roboto's or Bebas Neue's).
+ */
+const CAP_HEIGHT_RATIO: Record<string, number> = {
+  "Roboto-Bold": 0.711,
+  "BebasNeue-Regular": 0.700,
+  "Pacifico-Regular": 0.884,
+};
+
+/** Longest keyring we'll produce; longer names shrink slightly to stay printable. */
+export const MAX_RING_LENGTH_MM = 110;
+
+/** Rough average glyph advance as a fraction of the em size — for length estimates. */
+const CHAR_WIDTH_RATIO: Record<string, number> = {
+  "Roboto-Bold": 0.58,
+  "Pacifico-Regular": 0.62,
+  "BebasNeue-Regular": 0.42, // condensed
 };
 
 export const KEYRING_FONTS = [
@@ -71,8 +100,9 @@ export function calcPrice(size: KeyringSizeOption): number {
 // ─── Font size calculation ────────────────────────────────────────────────────
 
 /**
- * Calculate the optimal font size (in mm) for the given text and size.
- * Returns null if text cannot fit even at minimum font size.
+ * The font size (em, in mm) that renders capitals at the size's advertised
+ * `textHeightMm`. Deliberately independent of the text: every name gets identical
+ * lettering, and the keyring simply gets longer or shorter to suit.
  */
 export function calcFontSize(
   text: string,
@@ -80,31 +110,9 @@ export function calcFontSize(
   size: KeyringSizeOption
 ): number | null {
   if (!text) return null;
-
-  const maxWidth = size.widthMm - 10; // 5mm margin on each side
-  const maxHeight = size.heightMm - 8; // 4mm margin top/bottom
-
-  // Approximate character width ratios per font (width/height ratio per character)
-  const charRatios: Record<string, number> = {
-    "Roboto-Bold": 0.58,
-    "Pacifico-Regular": 0.62,
-    "BebasNeue-Regular": 0.42, // condensed font
-  };
-  const ratio = charRatios[fontId] ?? 0.58;
-
-  // Estimate: totalWidth = fontSize * ratio * charCount
-  // Solve for fontSize: fontSize = maxWidth / (ratio * charCount)
-  const charCount = text.length || 1;
-  let fontSize = maxWidth / (ratio * charCount);
-
-  // Also constrain by height
-  fontSize = Math.min(fontSize, maxHeight);
-
-  // Minimum readable size: 6mm
-  if (fontSize < 6) return null;
-
-  // Maximum capped at height - keeps proportional
-  return Math.round(Math.min(fontSize, maxHeight) * 10) / 10;
+  const capHeight = size.textHeightMm ?? DEFAULT_KEYRING_SETTINGS.sizes[1].textHeightMm;
+  const ratio = CAP_HEIGHT_RATIO[fontId] ?? 0.711;
+  return Math.round((capHeight / ratio) * 10) / 10;
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -122,13 +130,7 @@ export function validateConfig(
     return { ok: false, error: "Vælg en størrelse" };
   }
 
-  const fontSize = calcFontSize(config.text, config.font, size);
-  if (fontSize === null) {
-    return {
-      ok: false,
-      error: `Teksten er for lang til denne størrelse — prøv kortere tekst eller vælg en større størrelse`,
-    };
-  }
+  const fontSize = calcFontSize(config.text, config.font, size) ?? 0;
 
   const inStockFilaments = filaments.filter((f) => f.inStock);
   if (inStockFilaments.length === 0) {
@@ -142,18 +144,24 @@ export function validateConfig(
     return { ok: false, error: "Vælg en tekst-farve" };
   }
 
-  // Warn if text uses very little of shape width (only for template shapes)
-  if (config.shapeType !== "auto") {
-    const maxWidth = size.widthMm - 10;
-    const ratio = { "Roboto-Bold": 0.58, "Pacifico-Regular": 0.62, "BebasNeue-Regular": 0.42 }[config.font] ?? 0.58;
-    const textWidth = fontSize * ratio * config.text.length;
-    const usedPct = textWidth / maxWidth;
-    if (usedPct < 0.3) {
+  const ratio = CHAR_WIDTH_RATIO[config.font] ?? 0.58;
+  const textWidth = fontSize * ratio * config.text.length;
+
+  if (config.shapeType === "auto") {
+    // Letters are a fixed size, so a long name simply makes a long keyring — until it
+    // hits the printable limit, where it shrinks a little. Say so up front.
+    if (textWidth + 20 > MAX_RING_LENGTH_MM) {
       return {
         ok: true,
-        warning: "Teksten vil se lille ud på denne form — prøv en kortere form eller et større format",
+        warning: "Langt navn — bogstaverne bliver lidt mindre, så nøgleringen kan printes. Vælg evt. en mindre størrelse.",
       };
     }
+  } else if (textWidth / (size.widthMm - 10) < 0.3) {
+    // Template shapes have a fixed plate, so short text can look lost on it.
+    return {
+      ok: true,
+      warning: "Teksten vil se lille ud på denne form — prøv en kortere form eller et større format",
+    };
   }
 
   return { ok: true };

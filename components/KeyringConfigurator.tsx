@@ -519,7 +519,7 @@ export default function KeyringConfigurator() {
                   <span className="font-bold text-sm" style={{ color: isSelected ? primaryColor : "#374151" }}>
                     {size.label}
                   </span>
-                  <span className="text-xs text-gray-400">{size.widthMm} mm lang</span>
+                  <span className="text-xs text-gray-400">{size.textHeightMm} mm bogstaver</span>
                   <span className="text-xs font-semibold mt-1" style={{ color: primaryColor }}>
                     {(size.basePrice / 100).toFixed(0)} kr
                   </span>
@@ -690,7 +690,7 @@ export default function KeyringConfigurator() {
         {/* Info box */}
         <div className="rounded-xl bg-gray-50 p-4 text-xs text-gray-500 flex flex-col gap-1">
           <p>Printet i <strong>PLA</strong> på Bambu Lab X1 Carbon</p>
-          <p>Teksten tilpasses automatisk til den valgte størrelse</p>
+          <p>Størrelsen er bogstavhøjden — længden følger navnet</p>
           <p>2 farver via automatisk filamentskift</p>
           <p>Leveringstid: se fragtvalg ved checkout</p>
         </div>
