@@ -26,7 +26,7 @@
 import ClipperLib from "clipper-lib";
 import earcutMod from "earcut";
 import type { KeyringConfig, KeyringSizeOption } from "./keyring";
-import { getShapePolygon, MAX_RING_LENGTH_MM } from "./keyring";
+import { getShapePolygon, capHeightOf } from "./keyring";
 import type { Point } from "./textpaths";
 
 const earcut: (data: number[], holes?: number[], dim?: number) => number[] =
@@ -534,8 +534,7 @@ function scaleContoursAboutCenter(contours: P2[][], s: number): P2[][] {
  * no fixed size any more) so every size keeps the same visual proportions.
  */
 function autoMargin(size: KeyringSizeOption): number {
-  const cap = size.textHeightMm || 14;
-  return cap * 0.32;
+  return capHeightOf(size) * 0.32;
 }
 
 /**
@@ -551,18 +550,10 @@ export function buildKeyringMesh(
   const holePosition = config.holePosition ?? "top";
 
   // "auto" = consistent LETTER size: the text arrives already scaled to the size's
-  // advertised cap height, and the plate just grows around it — so a short name gives
-  // a short keyring and a long one a long keyring, with identical lettering. Only the
-  // printable-length limit can shrink it, and only for very long names.
-  if (config.shapeType === "auto") {
-    const cw = contoursWidth(rawContours);
-    // Worst case the tab sits at one end (side hole), so reserve room for both.
-    const allowance = 2 * autoMargin(size) + TAB_CLEARANCE_MM + 2 * TAB_RADIUS_MM;
-    const maxTextWidth = MAX_RING_LENGTH_MM - allowance;
-    if (cw > maxTextWidth && maxTextWidth > 0) {
-      rawContours = scaleContoursAboutCenter(rawContours, maxTextWidth / cw);
-    }
-  }
+  // advertised cap height and is never rescaled, so the lettering is exactly the
+  // advertised size for every name. The plate simply grows around it — a short name
+  // gives a short keyring, a long one a long keyring — and the character limit
+  // (MAX_TEXT_LENGTH) is what bounds the overall length.
 
   // Determine the body outline, ring-hole position, and the (possibly re-fitted)
   // text contours. AUTO wraps a bubble around the text; templates (heart/oval)

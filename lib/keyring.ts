@@ -63,8 +63,20 @@ const CAP_HEIGHT_RATIO: Record<string, number> = {
   "Pacifico-Regular": 0.884,
 };
 
-/** Longest keyring we'll produce; longer names shrink slightly to stay printable. */
-export const MAX_RING_LENGTH_MM = 110;
+/** Longest name we accept. This alone bounds the keyring's length — text is never
+ *  scaled down to fit, so the lettering is always exactly the advertised size. */
+export const MAX_TEXT_LENGTH = 15;
+
+/**
+ * The size's capital-letter height. Sizes saved before this field existed derive it
+ * from their old plate height, which reproduces the intended 10/14/18mm — so stored
+ * settings keep showing three genuinely different sizes without a migration step.
+ */
+export function capHeightOf(size: KeyringSizeOption): number {
+  return size.textHeightMm && size.textHeightMm > 0
+    ? size.textHeightMm
+    : Math.max(6, (size.heightMm || 28) * 0.5);
+}
 
 /** Rough average glyph advance as a fraction of the em size — for length estimates. */
 const CHAR_WIDTH_RATIO: Record<string, number> = {
@@ -110,9 +122,8 @@ export function calcFontSize(
   size: KeyringSizeOption
 ): number | null {
   if (!text) return null;
-  const capHeight = size.textHeightMm ?? DEFAULT_KEYRING_SETTINGS.sizes[1].textHeightMm;
   const ratio = CAP_HEIGHT_RATIO[fontId] ?? 0.711;
-  return Math.round((capHeight / ratio) * 10) / 10;
+  return Math.round((capHeightOf(size) / ratio) * 10) / 10;
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -124,6 +135,10 @@ export function validateConfig(
 ): ValidationResult {
   if (!config.text.trim()) {
     return { ok: false, error: "Skriv den tekst der skal på nøgleringen" };
+  }
+
+  if (config.text.length > MAX_TEXT_LENGTH) {
+    return { ok: false, error: `Maks. ${MAX_TEXT_LENGTH} tegn` };
   }
 
   if (!size) {
@@ -144,24 +159,17 @@ export function validateConfig(
     return { ok: false, error: "Vælg en tekst-farve" };
   }
 
-  const ratio = CHAR_WIDTH_RATIO[config.font] ?? 0.58;
-  const textWidth = fontSize * ratio * config.text.length;
-
-  if (config.shapeType === "auto") {
-    // Letters are a fixed size, so a long name simply makes a long keyring — until it
-    // hits the printable limit, where it shrinks a little. Say so up front.
-    if (textWidth + 20 > MAX_RING_LENGTH_MM) {
+  // Template shapes have a fixed plate, so short text can look lost on it. ("auto"
+  // needs no length check — the character limit already bounds the keyring's length.)
+  if (config.shapeType !== "auto") {
+    const ratio = CHAR_WIDTH_RATIO[config.font] ?? 0.58;
+    const textWidth = fontSize * ratio * config.text.length;
+    if (textWidth / (size.widthMm - 10) < 0.3) {
       return {
         ok: true,
-        warning: "Langt navn — bogstaverne bliver lidt mindre, så nøgleringen kan printes. Vælg evt. en mindre størrelse.",
+        warning: "Teksten vil se lille ud på denne form — prøv en kortere form eller et større format",
       };
     }
-  } else if (textWidth / (size.widthMm - 10) < 0.3) {
-    // Template shapes have a fixed plate, so short text can look lost on it.
-    return {
-      ok: true,
-      warning: "Teksten vil se lille ud på denne form — prøv en kortere form eller et større format",
-    };
   }
 
   return { ok: true };

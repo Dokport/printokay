@@ -12,6 +12,7 @@ import {
   calcPrice,
   validateConfig,
   DEFAULT_KEYRING_SETTINGS,
+  MAX_TEXT_LENGTH,
 } from "@/lib/keyring";
 import type { KeyringSizeOption, KeyringSettings } from "@/lib/keyring";
 import type { FilamentSpool } from "@/lib/settings";
@@ -488,7 +489,7 @@ export default function KeyringConfigurator() {
             }}
             onBlur={() => { setEditingText(false); if (!text.trim()) setText("Dit navn"); }}
             placeholder="Skriv din tekst her..."
-            maxLength={20}
+            maxLength={MAX_TEXT_LENGTH}
             className="w-full px-4 py-3 rounded-xl border-2 focus:outline-none focus:ring-2 bg-white text-gray-800 text-lg font-medium shadow-sm"
             style={{
               borderColor: primaryColor,
@@ -496,7 +497,7 @@ export default function KeyringConfigurator() {
               boxShadow: `0 0 0 3px ${primaryColor}22`,
             } as React.CSSProperties}
           />
-          <p className="text-xs text-gray-400 mt-1">{text.length}/20 tegn</p>
+          <p className="text-xs text-gray-400 mt-1">{text.length}/{MAX_TEXT_LENGTH} tegn</p>
         </div>
 
         {/* Size selector */}
@@ -519,7 +520,6 @@ export default function KeyringConfigurator() {
                   <span className="font-bold text-sm" style={{ color: isSelected ? primaryColor : "#374151" }}>
                     {size.label}
                   </span>
-                  <span className="text-xs text-gray-400">{size.textHeightMm} mm bogstaver</span>
                   <span className="text-xs font-semibold mt-1" style={{ color: primaryColor }}>
                     {(size.basePrice / 100).toFixed(0)} kr
                   </span>

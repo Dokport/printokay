@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Product, formatPrice, formatPrintTime, MATERIALS } from "@/lib/products";
 import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_THEMES } from "@/lib/settings";
-import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS } from "@/lib/keyring";
+import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS, capHeightOf } from "@/lib/keyring";
 import type { Order } from "@/lib/orders";
 import type { ColorZone, Printer, PrintRequest } from "@/lib/products";
 import { parseThreeMf, parseThreeMfMeta, parseSlicedStats } from "@/lib/threemf";
@@ -1349,37 +1349,51 @@ export default function AdminPage() {
 
           {/* Keyring price settings */}
           <div className="bg-white rounded-2xl p-6 shadow-sm">
-            <h2 className="font-semibold text-gray-800 mb-4">💰 Nøglering priser</h2>
-            <p className="text-sm text-gray-500 mb-4">Indstil priser for nøgleringe. Gem via knappen herunder.</p>
+            <h2 className="font-semibold text-gray-800 mb-4">💰 Nøglering størrelser og priser</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Bogstavhøjden er det der adskiller størrelserne — længden følger navnet. Gem via knappen herunder.
+            </p>
             <div className="flex flex-col gap-3 mb-4">
-              {(settings.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).map((size, i) => (
-                <div key={size.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3">
-                  <span className="font-medium text-gray-700 w-20">{size.label}</span>
-                  <span className="text-xs text-gray-400">{size.textHeightMm} mm bogstaver</span>
-                  <div className="flex items-center gap-2 ml-auto">
-                    <label className="text-xs text-gray-500">Pris (kr):</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={(size.basePrice / 100).toFixed(0)}
-                      onChange={(e) => {
-                        const newPrice = Math.round(parseFloat(e.target.value) * 100) || 0;
-                        setSettings((s) => ({
-                          ...s,
-                          keyring: {
-                            ...(s.keyring ?? DEFAULT_KEYRING_SETTINGS),
-                            sizes: (s.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).map((sz, idx) =>
-                              idx === i ? { ...sz, basePrice: newPrice } : sz
-                            ),
-                          },
-                        }));
-                      }}
-                      className="w-20 border border-gray-200 rounded-xl px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 text-right"
-                    />
+              {(settings.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).map((size, i) => {
+                const patch = (field: "basePrice" | "textHeightMm", value: number) =>
+                  setSettings((s) => ({
+                    ...s,
+                    keyring: {
+                      ...(s.keyring ?? DEFAULT_KEYRING_SETTINGS),
+                      sizes: (s.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).map((sz, idx) =>
+                        idx === i ? { ...sz, [field]: value } : sz
+                      ),
+                    },
+                  }));
+                return (
+                  <div key={size.id} className="flex items-center gap-3 bg-gray-50 rounded-xl px-4 py-3 flex-wrap">
+                    <span className="font-medium text-gray-700 w-20">{size.label}</span>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500">Bogstavhøjde (mm):</label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="40"
+                        step="1"
+                        value={capHeightOf(size)}
+                        onChange={(e) => patch("textHeightMm", Math.round(parseFloat(e.target.value)) || 0)}
+                        className="w-16 border border-gray-200 rounded-xl px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 text-right"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 ml-auto">
+                      <label className="text-xs text-gray-500">Pris (kr):</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={(size.basePrice / 100).toFixed(0)}
+                        onChange={(e) => patch("basePrice", Math.round(parseFloat(e.target.value) * 100) || 0)}
+                        className="w-20 border border-gray-200 rounded-xl px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 text-right"
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <p className="text-xs text-gray-400 mb-4">Prisen er all-in (altid 2 farver) — intet særskilt farvetillæg.</p>
             <button
