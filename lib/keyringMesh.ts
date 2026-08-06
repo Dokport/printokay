@@ -127,18 +127,18 @@ function cleanUnion(contours: P2[][]): P2[][] {
 }
 
 /**
- * Offset (expand) a set of contours outward by deltaMm with round joins,
- * then return the unioned outer boundary (single polygon). The "bubble".
+ * Offset (expand) a set of contours outward by deltaMm with round joins, then union.
+ * Returns every resulting OUTER island, largest first.
  */
-function bubbleAround(contours: P2[][], deltaMm: number): P2[] | null {
+function bubbleIslands(contours: P2[][], deltaMm: number): P2[][] {
   const paths = contours.filter((c) => c.length >= 3).map(toClipper);
-  if (!paths.length) return null;
+  if (!paths.length) return [];
 
   const co = new ClipperLib.ClipperOffset(2.0, SCALE * 0.05);
   co.AddPaths(paths, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
   const offset: IPt[][] = [];
   co.Execute(offset, deltaMm * SCALE);
-  if (!offset.length) return null;
+  if (!offset.length) return [];
 
   const clipper = new ClipperLib.Clipper();
   clipper.AddPaths(offset, ClipperLib.PolyType.ptSubject, true);
@@ -149,13 +149,34 @@ function bubbleAround(contours: P2[][], deltaMm: number): P2[] | null {
     ClipperLib.PolyFillType.pftNonZero,
     ClipperLib.PolyFillType.pftNonZero
   );
-  if (!union.length) return null;
+  if (!union.length) return [];
 
-  const mm = union.map(fromClipper);
-  const largest = mm.reduce((a, b) =>
-    Math.abs(signedArea(a)) >= Math.abs(signedArea(b)) ? a : b
+  const mm = union.map(fromClipper).filter((p) => p.length >= 3);
+  const outers = mm.filter((p) => signedArea(p) > 0); // drop hole rings
+  return (outers.length ? outers : mm).sort(
+    (a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a))
   );
-  return largest;
+}
+
+/**
+ * The plate outline: the bubble around everything, grown until it forms ONE island.
+ *
+ * Widely-spaced glyphs (short text scaled up to the advertised width) can sit further
+ * apart than the margin, which would split the plate into islands — and since only one
+ * can be the body, the ring tab or whole letters would silently disappear. Growing the
+ * margin fattens the plate until it closes into a single, printable piece.
+ */
+function bubbleAround(contours: P2[][], deltaMm: number): P2[] | null {
+  let delta = deltaMm;
+  let best: P2[] | null = null;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const islands = bubbleIslands(contours, delta);
+    if (!islands.length) break;
+    best = islands[0];
+    if (islands.length === 1) return best;
+    delta *= 1.35;
+  }
+  return best;
 }
 
 // ─── Containment-depth grouping (orientation-independent) ──────────────────────
@@ -343,6 +364,39 @@ function circle(cx: number, cy: number, r: number, steps = 64): P2[] {
     const t = (i / steps) * 2 * Math.PI;
     return { x: cx + r * Math.cos(t), y: cy + r * Math.sin(t) };
   });
+}
+
+/**
+ * Where the material actually starts along a scan line, by intersecting the contour
+ * EDGES — not by sampling contour vertices. A straight stem (e.g. "D" in Roboto or
+ * Bebas Neue) only has vertices at its corners, so vertex sampling misses its edge
+ * entirely in the middle and reports some curvier letter further in.
+ */
+function leftmostAtY(contours: P2[][], y: number): number | null {
+  let best: number | null = null;
+  for (const c of contours) {
+    for (let i = 0, n = c.length; i < n; i++) {
+      const a = c[i], b = c[(i + 1) % n];
+      if ((a.y > y) === (b.y > y)) continue; // edge doesn't straddle this y
+      const x = a.x + ((y - a.y) / (b.y - a.y)) * (b.x - a.x);
+      if (best === null || x < best) best = x;
+    }
+  }
+  return best;
+}
+
+/** Topmost material y along the vertical line at `x` (edge intersection). */
+function topmostAtX(contours: P2[][], x: number): number | null {
+  let best: number | null = null;
+  for (const c of contours) {
+    for (let i = 0, n = c.length; i < n; i++) {
+      const a = c[i], b = c[(i + 1) % n];
+      if ((a.x > x) === (b.x > x)) continue; // edge doesn't straddle this x
+      const y = a.y + ((x - a.x) / (b.x - a.x)) * (b.y - a.y);
+      if (best === null || y > best) best = y;
+    }
+  }
+  return best;
 }
 
 /** Axis-aligned rectangle polygon (CCW), from any two opposite corners. */
@@ -539,23 +593,42 @@ export function buildKeyringMesh(
       const marginMm = Math.min(size.widthMm, size.heightMm) * 0.16;
       const neckHalf = TAB_RADIUS_MM * 0.65;
 
-      // Centre the hole (top → horizontal centre; side → vertical centre) and weld it
-      // on with a neck that reaches the material DIRECTLY beneath/beside it — so it's
-      // both centred AND solidly connected, even when the middle letters are low (e.g.
-      // "Lennart" in a cursive font, where only L and t reach the top).
+      // The hole always sits clear of ALL text (left of / above everything), and a neck
+      // welds it to the material on the scan line nearest the centre that actually has
+      // material — so it's centred, never lands inside the lettering, and stays solidly
+      // connected whatever the font's letter heights.
+      const outers = groups.map((g) => g.outer);
+      const OVERLAP = 3; // how far the neck reaches into the material
+      const SAMPLES = 64;
       let neck: P2[];
       if (holePosition === "side") {
-        holeCY = (minY + maxY) / 2;
-        const beside = allPts.filter((p) => Math.abs(p.y - holeCY) <= neckHalf + 2);
-        const leftAtCentre = beside.length ? Math.min(...beside.map((p) => p.x)) : minX;
-        holeCX = leftAtCentre - TAB_CLEARANCE_MM - TAB_RADIUS_MM;
-        neck = rect(holeCX, holeCY - neckHalf, leftAtCentre + 2, holeCY + neckHalf);
+        // Scan heights for the one nearest the vertical centre that has material.
+        const cY = (minY + maxY) / 2;
+        let bestY = cY, bestLeft = minX, bestDist = Infinity;
+        for (let i = 0; i <= SAMPLES; i++) {
+          const y = minY + ((maxY - minY) * i) / SAMPLES;
+          const lx = leftmostAtY(outers, y);
+          if (lx === null) continue;
+          const d = Math.abs(y - cY);
+          if (d < bestDist) { bestDist = d; bestY = y; bestLeft = lx; }
+        }
+        holeCY = bestY;
+        holeCX = minX - TAB_CLEARANCE_MM - TAB_RADIUS_MM; // clear of all text
+        neck = rect(holeCX, holeCY - neckHalf, bestLeft + OVERLAP, holeCY + neckHalf);
       } else {
-        holeCX = (minX + maxX) / 2;
-        holeCY = maxY + TAB_CLEARANCE_MM + TAB_RADIUS_MM;
-        const beneath = allPts.filter((p) => Math.abs(p.x - holeCX) <= neckHalf + 2);
-        const topAtCentre = beneath.length ? Math.max(...beneath.map((p) => p.y)) : maxY;
-        neck = rect(holeCX - neckHalf, holeCY, holeCX + neckHalf, topAtCentre - 2);
+        // Scan columns for the one nearest the horizontal centre that has material.
+        const cX = (minX + maxX) / 2;
+        let bestX = cX, bestTop = maxY, bestDist = Infinity;
+        for (let i = 0; i <= SAMPLES; i++) {
+          const x = minX + ((maxX - minX) * i) / SAMPLES;
+          const ty = topmostAtX(outers, x);
+          if (ty === null) continue;
+          const d = Math.abs(x - cX);
+          if (d < bestDist) { bestDist = d; bestX = x; bestTop = ty; }
+        }
+        holeCX = bestX;
+        holeCY = maxY + TAB_CLEARANCE_MM + TAB_RADIUS_MM; // clear above all text
+        neck = rect(holeCX - neckHalf, holeCY, holeCX + neckHalf, bestTop - OVERLAP);
       }
       const tab = circle(holeCX, holeCY, TAB_RADIUS_MM);
       body = bubbleAround([...groups.map((g) => g.outer), tab, neck], marginMm)
