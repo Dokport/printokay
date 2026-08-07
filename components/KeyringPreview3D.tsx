@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Bounds } from "@react-three/drei";
+import { OrbitControls, Bounds, Line } from "@react-three/drei";
 import * as THREE from "three";
 import { parse } from "opentype.js";
 import { contoursFromFont, type OpenTypeFontLike } from "@/lib/textpaths";
@@ -72,72 +72,70 @@ const cm = (mm: number) => (mm / 10).toFixed(1).replace(".", ",");
 
 // ─── Scale reference: an ordinary house key ────────────────────────────────────
 
-// Sized like a typical house key: 22mm bow across, ~56mm overall.
-const KEY_BOW_R = 11;     // bow outer radius (mm)
-const KEY_HOLE_R = 4.5;
-const KEY_SHANK_H = 3.2;  // half-height of the shank
-const KEY_BLADE_LEN = 34;
-const KEY_THICK = 1.6;    // deliberately thin — a flat cut-out, not a solid prop
+// Profile of a Ruko 500-series house key, at true size: 24mm bow, ~58mm overall.
+const KEY_BOW_R = 12;     // bow radius (mm)
+const KEY_HOLE_R = 3.6;
+const KEY_HOLE_X = -4.5;  // hole sits above centre, away from the blade
+const KEY_HALF_H = 4.2;   // blade half-height
+const KEY_TIP_X = 46;
 
-/**
- * The whole key as ONE flat silhouette (bow + blade, with the bow's hole), so it can
- * be extruded as a single cut-out shape and shaded flat.
- */
-function keyShape(): THREE.Shape {
-  const jx = Math.sqrt(KEY_BOW_R * KEY_BOW_R - KEY_SHANK_H * KEY_SHANK_H); // bow/blade junction
-  const a = Math.atan2(KEY_SHANK_H, jx);
-  const tip = jx + KEY_BLADE_LEN;
-  const low = -KEY_SHANK_H - 1.6; // blade is a little deeper than the shank
+/** Outer contour of the key, traced along +X from the bow. */
+function keyOutline(): THREE.Vector3[] {
+  const jx = Math.sqrt(KEY_BOW_R * KEY_BOW_R - KEY_HALF_H * KEY_HALF_H); // bow/blade junction
+  const a = Math.atan2(KEY_HALF_H, jx);
+  const p: THREE.Vector3[] = [];
+  const at = (x: number, y: number) => p.push(new THREE.Vector3(x, y, 0));
 
-  const s = new THREE.Shape();
-  s.moveTo(jx, -KEY_SHANK_H);
-  s.absarc(0, 0, KEY_BOW_R, -a, a, true); // the long way round the bow
-  s.lineTo(tip - 3, KEY_SHANK_H);         // blade back
-  s.lineTo(tip, KEY_SHANK_H - 2);         // tapered tip
-  s.lineTo(tip, low);
-  // teeth, cut back along the underside towards the bow
-  s.lineTo(tip - 4, low);
-  s.lineTo(tip - 6.5, low + 3);
-  s.lineTo(tip - 9, low);
-  s.lineTo(tip - 12, low + 3);
-  s.lineTo(tip - 15, low);
-  s.lineTo(tip - 18, low + 2.4);
-  s.lineTo(tip - 21, low);
-  s.lineTo(jx + 6, low);
-  s.lineTo(jx + 6, -KEY_SHANK_H);
-  s.closePath();
+  // Bow: the long way round, from the toothed side to the spine side.
+  const steps = 72;
+  for (let i = 0; i <= steps; i++) {
+    const t = -a - (i / steps) * (2 * Math.PI - 2 * a); // clockwise, the long way
+    at(Math.cos(t) * KEY_BOW_R, Math.sin(t) * KEY_BOW_R);
+  }
+  // Straight spine out to the tip, then the angled tip.
+  at(KEY_TIP_X - 3.5, KEY_HALF_H);
+  at(KEY_TIP_X, KEY_HALF_H - 3.2);
+  at(KEY_TIP_X, -KEY_HALF_H);
+  // Bitting: V-cuts back along the underside towards the bow.
+  const cuts: [number, number][] = [
+    [3, 0], [5.5, 2.6], [8, 0], [10.5, 3.0], [13, 0],
+    [15.5, 2.2], [18, 0], [20.5, 2.8], [23, 0],
+  ];
+  for (const [back, up] of cuts) at(KEY_TIP_X - back, -KEY_HALF_H + up);
+  at(jx, -KEY_HALF_H);
+  return p;
+}
 
-  const hole = new THREE.Path();
-  hole.absarc(0, 0, KEY_HOLE_R, 0, Math.PI * 2, true);
-  s.holes.push(hole);
-  return s;
+/** The bow's hole, as its own closed loop. */
+function keyHoleOutline(): THREE.Vector3[] {
+  const p: THREE.Vector3[] = [];
+  for (let i = 0; i <= 48; i++) {
+    const t = (i / 48) * Math.PI * 2;
+    p.push(new THREE.Vector3(KEY_HOLE_X + Math.cos(t) * KEY_HOLE_R, Math.sin(t) * KEY_HOLE_R, 0));
+  }
+  return p;
 }
 
 /**
- * Size reference: an ordinary house key at its true size, drawn as a flat vector-style
- * cut-out — unlit fill plus a darker edge for the thickness. The deliberately
- * illustrative look keeps it from reading as part of the product; it's a ruler you
- * already own. Off by default, toggled with "Tjek størrelse".
+ * Size reference: an ordinary house key at true size, drawn as a pure OUTLINE — no
+ * thickness, no fill, no shading. It reads unmistakably as a diagram rather than a
+ * second product, which a solid model never quite managed. Off by default, toggled
+ * with "Tjek størrelse".
  */
 function ScaleKey({ ring }: { ring: ReturnType<typeof bboxOf> }) {
-  const geom = useMemo(() => {
-    const g = new THREE.ExtrudeGeometry(keyShape(), { depth: KEY_THICK, bevelEnabled: false });
-    g.translate(0, 0, -KEY_THICK / 2);
-    return g;
-  }, []);
-  useEffect(() => () => geom.dispose(), [geom]);
+  const outline = useMemo(() => keyOutline(), []);
+  const hole = useMemo(() => keyHoleOutline(), []);
 
   // Stand it upright (blade pointing up), just left of the keyring, vertically centred.
   const x = ring.minX - 9 - KEY_BOW_R;
   const y = (ring.minY + ring.maxY) / 2;
+  const stroke = "#8b98a9";
 
   return (
     <group position={[x, y, 0]} rotation={[0, 0, Math.PI / 2]}>
-      <mesh geometry={geom}>
-        {/* Unlit flat fill (caps) + darker sides → a paper/vector cut-out */}
-        <meshBasicMaterial attach="material-0" color="#b6c2d1" />
-        <meshBasicMaterial attach="material-1" color="#7d8da0" />
-      </mesh>
+      {/* Both point lists already end where they start, so the loops close. */}
+      <Line points={outline} color={stroke} lineWidth={1.6} />
+      <Line points={hole} color={stroke} lineWidth={1.6} />
     </group>
   );
 }
