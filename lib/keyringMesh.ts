@@ -48,7 +48,12 @@ const SCALE = 1000; // mm → clipper integer coordinates
 
 export type Vec3 = [number, number, number];
 export type Tri  = [Vec3, Vec3, Vec3];
-export type KeyringMesh = { base: Tri[]; text: Tri[] };
+export type KeyringMesh = {
+  base: Tri[];
+  text: Tri[];
+  /** Ring-attachment hole, so a preview can thread a split ring through it. */
+  hole: { cx: number; cy: number; r: number };
+};
 type P2 = Point;
 
 // ─── Polygon math ─────────────────────────────────────────────────────────────
@@ -677,5 +682,5 @@ export function buildKeyringMesh(
 
   // No post-scaling: the lettering is already at its advertised size, and leaving the
   // mesh alone keeps the ring hole at its true 5mm diameter for every name.
-  return { base, text };
+  return { base, text, hole: { cx: holeCX, cy: holeCY, r: HOLE_RADIUS_MM } };
 }
