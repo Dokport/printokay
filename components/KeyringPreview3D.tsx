@@ -126,13 +126,14 @@ function ScaleKey({ ring }: { ring: ReturnType<typeof bboxOf> }) {
   const outline = useMemo(() => keyOutline(), []);
   const hole = useMemo(() => keyHoleOutline(), []);
 
-  // Stand it upright (blade pointing up), just left of the keyring, vertically centred.
-  const x = ring.minX - 9 - KEY_BOW_R;
-  const y = (ring.minY + ring.maxY) / 2;
+  // Lay it flat below the keyring, centred on it.
+  const keyMidX = (KEY_TIP_X - KEY_BOW_R) / 2; // the key's own centre along its length
+  const x = (ring.minX + ring.maxX) / 2 - keyMidX;
+  const y = ring.minY - 8 - KEY_BOW_R;
   const stroke = "#8b98a9";
 
   return (
-    <group position={[x, y, 0]} rotation={[0, 0, Math.PI / 2]}>
+    <group position={[x, y, 0]}>
       {/* Both point lists already end where they start, so the loops close. */}
       <Line points={outline} color={stroke} lineWidth={1.6} />
       <Line points={hole} color={stroke} lineWidth={1.6} />
