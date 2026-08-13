@@ -29,6 +29,7 @@ import {
   type OrderCustomer,
 } from "./orders";
 import { generateKeyringStl } from "./stl";
+import { sendOrderConfirmation } from "./email";
 
 export type PendingCart = { items: CartItem[]; createdAt: string };
 
@@ -184,5 +185,12 @@ export async function finalizeOrder(sessionId: string): Promise<Order | null> {
   const saved = await addOrder(order);
   // Clean up the stashed cart (best-effort).
   await deleteFile(pendingCartKey(sessionId));
+
+  // Fire-and-forget: this is the first (and only) time this order is created —
+  // the `existing` check above makes every later call for this session a no-op
+  // before it ever reaches here, so the confirmation email is sent exactly once,
+  // regardless of whether the webhook or the success-page fallback got here first.
+  sendOrderConfirmation(saved).catch((err) => console.error("sendOrderConfirmation:", err));
+
   return saved;
 }
