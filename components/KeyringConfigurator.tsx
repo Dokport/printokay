@@ -48,7 +48,7 @@ type Settings = {
 const KeyringPreview3D = dynamic(() => import("@/components/KeyringPreview3D"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-[180px] sm:h-[280px] rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-sm text-gray-400">
+    <div className="w-full h-[clamp(150px,28vh,300px)] rounded-2xl bg-gray-50 border border-gray-100 flex items-center justify-center text-sm text-gray-400">
       Indlæser 3D-preview…
     </div>
   ),
@@ -396,6 +396,11 @@ export default function KeyringConfigurator() {
 
   const fontSize = selectedSize ? calcFontSize(text, font, selectedSize) : null;
 
+  // Shared by the full-width button (bottom) and the compact one in the desktop
+  // preview card, so their enabled-state can never drift apart.
+  const canBuy =
+    validation.ok && !!baseFilamentId && !!textFilamentId && baseFilamentId !== textFilamentId;
+
   function handleAddToCart() {
     if (!validation.ok || !selectedSize || !price || !baseFil || !textFil || !fontSize) return;
 
@@ -436,12 +441,18 @@ export default function KeyringConfigurator() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* ── Sticky preview at top ──
-          Full-bleed solid background (negative margins cancel the page padding)
-          so settings scrolling underneath never peek around the rounded card. */}
-      <div className={`${editingText ? "relative" : "sticky"} top-0 z-20 -mx-4 px-4 pt-3 pb-3 bg-white shadow-md border-b border-gray-100`}>
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Forhåndsvisning</p>
+    // Mobile: one column with a compact sticky preview bar on top. Desktop (lg:):
+    // two columns — the preview (plus a compact price/CTA) in a sticky card on the
+    // left, the settings scrolling on the right — so the result of every adjustment
+    // is always in view, even on short viewports (zoom, small laptops).
+    <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:items-start lg:gap-8">
+      {/* ── Preview: sticky bar (mobile) / sticky card (desktop) ──
+          Full-bleed solid background on mobile (negative margins cancel the page
+          padding) so settings scrolling underneath never peek around the card.
+          While the text field is edited on mobile, unstick so the on-screen
+          keyboard doesn't leave the preview covering the whole visible area. */}
+      <div className={`${editingText ? "relative lg:sticky" : "sticky"} top-16 z-20 -mx-4 px-4 pt-3 pb-3 bg-white shadow-md border-b border-gray-100 lg:top-20 lg:col-start-1 lg:mx-0 lg:rounded-2xl lg:border lg:border-gray-100 lg:p-5 lg:shadow-sm`}>
+        <p className="hidden lg:block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Forhåndsvisning</p>
         {webglOk ? (
           <KeyringPreview3D
             text={text}
@@ -465,12 +476,31 @@ export default function KeyringConfigurator() {
           />
         )}
         {webglOk && (
-          <p className="text-xs text-gray-400 text-center mt-2">Træk for at rotere · scroll for at zoome</p>
+          <p className="hidden lg:block text-xs text-gray-400 text-center mt-2">Træk for at rotere · scroll for at zoome</p>
         )}
+
+        {/* Compact price + CTA — desktop only, so the whole buy decision lives in
+            the always-visible card. Mobile keeps the full-width button at the end. */}
+        <div className="hidden lg:flex items-center justify-between gap-3 mt-3 pt-3 border-t border-gray-100">
+          <div className="text-sm text-gray-500">
+            I alt{" "}
+            <span className="font-bold text-base" style={{ color: primaryColor }}>
+              {price ? `${(price / 100).toFixed(0)} kr` : "—"}
+            </span>
+          </div>
+          <button
+            onClick={handleAddToCart}
+            disabled={!canBuy}
+            className="px-5 py-2.5 rounded-xl font-semibold text-white text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ backgroundColor: added ? "#22c55e" : primaryColor }}
+          >
+            {added ? "Lagt i kurv!" : "Læg i kurv"}
+          </button>
+        </div>
       </div>
 
       {/* ── Configuration ── */}
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-5 lg:col-start-2">
 
         {/* Text input */}
         <div>
@@ -640,7 +670,7 @@ export default function KeyringConfigurator() {
       </div>
 
       {/* ── Validation + Price + Add to cart ── */}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4 lg:col-start-2">
         {/* Validation messages */}
         {!validation.ok && text && text !== "Dit navn" && (
           <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-sm text-red-700">
@@ -670,7 +700,7 @@ export default function KeyringConfigurator() {
         {/* Add to cart */}
         <button
           onClick={handleAddToCart}
-          disabled={!validation.ok || !baseFilamentId || !textFilamentId || baseFilamentId === textFilamentId}
+          disabled={!canBuy}
           className="w-full py-3.5 rounded-2xl font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed text-base"
           style={{ backgroundColor: added ? "#22c55e" : primaryColor }}
         >

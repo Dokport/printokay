@@ -342,7 +342,9 @@ export default function KeyringPreview3D({
     };
   }, [geom]);
 
-  const wrap = "w-full h-[180px] sm:h-[280px] rounded-2xl bg-gray-50 border border-gray-100 overflow-hidden";
+  // Height follows the viewport (clamped), so short viewports — mobile landscape,
+  // zoomed-in desktops — get a smaller canvas instead of one that eats the screen.
+  const wrap = "w-full h-[clamp(150px,28vh,300px)] rounded-2xl bg-gray-50 border border-gray-100 overflow-hidden";
   const placeholder = (msg: string) => (
     <div className={`${wrap} flex items-center justify-center text-sm text-gray-400`}>
       {msg}
