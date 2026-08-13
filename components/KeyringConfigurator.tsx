@@ -439,7 +439,7 @@ export default function KeyringConfigurator() {
           padding) so settings scrolling underneath never peek around the card.
           While the text field is edited on mobile, unstick so the on-screen
           keyboard doesn't leave the preview covering the whole visible area. */}
-      <div className={`${editingText ? "relative lg:sticky" : "sticky"} top-16 z-20 -mx-4 px-4 pt-3 pb-3 bg-white shadow-md border-b border-gray-100 lg:top-20 lg:col-start-1 lg:mx-0 lg:rounded-2xl lg:border lg:border-gray-100 lg:p-5 lg:shadow-sm`}>
+      <div className={`${editingText ? "relative top-0 lg:sticky lg:top-20" : "sticky top-16 lg:top-20"} z-20 -mx-4 px-4 pt-3 pb-3 bg-white shadow-md border-b border-gray-100 lg:col-start-1 lg:mx-0 lg:rounded-2xl lg:border lg:border-gray-100 lg:p-5 lg:shadow-sm`}>
         <p className="hidden lg:block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Forhåndsvisning</p>
         {webglOk ? (
           <KeyringPreview3D
