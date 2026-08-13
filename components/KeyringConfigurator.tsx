@@ -17,6 +17,7 @@ import {
 import type { KeyringSizeOption, KeyringSettings } from "@/lib/keyring";
 import type { FilamentSpool } from "@/lib/settings";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
+import { detectWebGL } from "@/lib/webgl";
 
 function hexToRgb(h: string): [number, number, number] {
   const s = h.replace("#", "");
@@ -54,19 +55,6 @@ const KeyringPreview3D = dynamic(() => import("@/components/KeyringPreview3D"), 
   ),
 });
 
-/** Cheap one-time WebGL capability check. */
-function detectWebGL(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const canvas = document.createElement("canvas");
-    return !!(
-      window.WebGLRenderingContext &&
-      (canvas.getContext("webgl") || canvas.getContext("experimental-webgl"))
-    );
-  } catch {
-    return false;
-  }
-}
 
 // ─── Canvas preview (2D fallback) ─────────────────────────────────────────────
 

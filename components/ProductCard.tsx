@@ -6,7 +6,8 @@ import { Product, formatPrice } from "@/lib/products";
 import { FilamentSpool } from "@/lib/settings";
 import { ColorChoice } from "@/lib/cart";
 import { useCart } from "@/lib/cartContext";
-import { useMemo, useRef, useState } from "react";
+import { detectWebGL } from "@/lib/webgl";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // three.js viewer is client-only and heavy — load on demand (only the active card mounts it).
 const Product3DPreview = dynamic(() => import("./Product3DPreview"), {
@@ -71,6 +72,11 @@ export default function ProductCard({
   const [imgIndex, setImgIndex] = useState(0);
   const [topView, setTopView] = useState<"3d" | "foto">("3d");
   const prefetched = useRef(false);
+  // Old devices without WebGL — and any card whose 3D load/render fails — fall back
+  // to the product photo, which is Bambu Studio's own prerender of the same model.
+  const [webglOk, setWebglOk] = useState(true);
+  const [failed3D, setFailed3D] = useState(false);
+  useEffect(() => { setWebglOk(detectWebGL()); }, []);
 
   // Per-slot selection: slotId -> filamentId. Pre-filled with the model's own
   // colours (nearest in-stock filament) so a sensible default is shown up front.
@@ -132,16 +138,16 @@ export default function ProductCard({
   const cardBg = `color-mix(in srgb, ${bgColor} 60%, white)`;
   const missingSlots = customizable ? slots.filter((s) => !slotChoices[s.id]) : [];
   const blocked = missingSlots.length > 0;
-  const canShow3D = isActive && customizable && has3D;
+  const canShow3D = isActive && customizable && has3D && webglOk && !failed3D;
   const show3D = canShow3D && topView === "3d";
 
   // Warm the 3D bundle + mesh on hover, so clicking "Vælg farver" feels instant.
   function prefetch3D() {
-    if (prefetched.current || !customizable || !has3D) return;
+    if (prefetched.current || !customizable || !has3D || !webglOk) return;
     prefetched.current = true;
     import("./Product3DPreview").catch(() => {});
     const ver = product.previewModel || product.modelFile;
-    fetch(`/api/products/${product.id}/mesh${ver ? `?v=${encodeURIComponent(ver)}` : ""}`).catch(() => {});
+    fetch(`/api/products/${product.id}/mesh?f=bin${ver ? `&v=${encodeURIComponent(ver)}` : ""}`).catch(() => {});
   }
 
   return (
@@ -158,6 +164,7 @@ export default function ProductCard({
             zoneColors={zoneColors}
             version={product.previewModel || product.modelFile}
             className="w-full h-52"
+            onError={() => setFailed3D(true)}
           />
         ) : hasImages ? (
           <>
