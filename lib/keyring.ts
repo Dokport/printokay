@@ -91,10 +91,11 @@ export const KEYRING_FONTS = [
   { id: "BebasNeue-Regular", label: "Bebas Neue",  cssFamily: "'Bebas Neue', sans-serif", description: "Fed og kompakt" },
 ];
 
+// Hjerte/oval er midlertidigt skjult i shoppen — ikke klar til produktion endnu
+// (geometrien i getShapePolygon()/buildKeyringMesh() understøtter dem stadig, så
+// det er kun kunde-valget der er slået fra). Tilføj dem her igen for at genaktivere.
 export const KEYRING_SHAPES = [
-  { id: "auto",  label: "Automatisk", description: "Tilpasses teksten" },
-  { id: "heart", label: "Hjerte",     description: "Hjerteform" },
-  { id: "oval",  label: "Oval",       description: "Oval form" },
+  { id: "auto", label: "Automatisk", description: "Tilpasses teksten" },
 ];
 
 export const KEYRING_HOLE_POSITIONS = [

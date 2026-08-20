@@ -574,30 +574,35 @@ export default function KeyringConfigurator() {
           </div>
         </div>
 
-        {/* Shape selector */}
-        <div>
-          <label className="text-sm font-semibold text-gray-700 mb-2 block">Formskabelon</label>
-          <div className="flex gap-2">
-            {KEYRING_SHAPES.map((s) => {
-              const isSelected = shapeType === s.id;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setShapeType(s.id as "auto" | "heart" | "oval")}
-                  className="flex flex-col items-center gap-1 flex-1 py-2.5 px-2 rounded-xl border-2 transition-all"
-                  style={{
-                    borderColor: isSelected ? primaryColor : "#e5e7eb",
-                    backgroundColor: isSelected ? `color-mix(in srgb, ${primaryColor} 8%, white)` : "white",
-                  }}
-                >
-                  <span className="text-xs font-medium" style={{ color: isSelected ? primaryColor : "#6b7280" }}>{s.label}</span>
-                  <span className="text-xs text-gray-400 text-center leading-tight">{s.description}</span>
-                </button>
-              );
-            })}
+        {/* Shape selector — hidden while only "Automatisk" is offered (see
+            KEYRING_SHAPES in lib/keyring.ts); a single, always-selected option
+            isn't a real choice, so the section reappears on its own once more
+            templates are re-enabled. */}
+        {KEYRING_SHAPES.length > 1 && (
+          <div>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">Formskabelon</label>
+            <div className="flex gap-2">
+              {KEYRING_SHAPES.map((s) => {
+                const isSelected = shapeType === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setShapeType(s.id as "auto" | "heart" | "oval")}
+                    className="flex flex-col items-center gap-1 flex-1 py-2.5 px-2 rounded-xl border-2 transition-all"
+                    style={{
+                      borderColor: isSelected ? primaryColor : "#e5e7eb",
+                      backgroundColor: isSelected ? `color-mix(in srgb, ${primaryColor} 8%, white)` : "white",
+                    }}
+                  >
+                    <span className="text-xs font-medium" style={{ color: isSelected ? primaryColor : "#6b7280" }}>{s.label}</span>
+                    <span className="text-xs text-gray-400 text-center leading-tight">{s.description}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Hole position selector */}
         <div>
