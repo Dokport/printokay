@@ -47,10 +47,10 @@ const TAB_CLEARANCE_MM  = 1.0;  // gap between tallest letter and tab circle
 // 3mm wall instead of 1.8mm, pulled in close so it sits on a stub rather than a
 // stalk, and joined with a generous fillet — a sharp inside corner there is where
 // a printed part cracks first.
-const OVAL_TAB_RADIUS_MM    = HOLE_RADIUS_MM + 3.0; // 3mm wall around the hole
-const OVAL_TAB_CLEARANCE_MM = 0.6;  // minimal overhang between plate and eye
-const OVAL_TAB_BLEND_MM     = 2.6;  // fillet radius at the joint
-const OVAL_NECK_FACTOR      = 0.8;  // neck width relative to the eye
+const OVAL_TAB_RADIUS_MM    = HOLE_RADIUS_MM + 3.8; // 3.8mm wall around the hole
+const OVAL_TAB_CLEARANCE_MM = 0.5;  // minimal overhang between plate and eye
+const OVAL_TAB_BLEND_MM     = 3.0;  // fillet radius at the joint
+const OVAL_NECK_FACTOR      = 0.9;  // neck width relative to the eye
 
 const SCALE = 1000; // mm → clipper integer coordinates
 
