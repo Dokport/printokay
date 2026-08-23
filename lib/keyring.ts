@@ -105,6 +105,16 @@ export const KEYRING_HOLE_POSITIONS = [
   { id: "side", label: "I siden", description: "Hullet sidder til venstre for teksten" },
 ];
 
+/**
+ * A round tag has no sensible side eye — the hole belongs at the top, where it
+ * leaves the disc symmetric around the lettering.
+ */
+export function holePositionsFor(shapeType: string) {
+  return shapeType === "round"
+    ? KEYRING_HOLE_POSITIONS.filter((p) => p.id === "top")
+    : KEYRING_HOLE_POSITIONS;
+}
+
 // ─── Price calculation ────────────────────────────────────────────────────────
 
 // Keyrings are always 2-colour now, so the price is simply the size's (all-in) price.

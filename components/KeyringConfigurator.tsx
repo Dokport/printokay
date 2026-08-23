@@ -7,7 +7,7 @@ import { useCart } from "@/lib/cartContext";
 import {
   KEYRING_FONTS,
   KEYRING_SHAPES,
-  KEYRING_HOLE_POSITIONS,
+  holePositionsFor,
   calcFontSize,
   calcPrice,
   validateConfig,
@@ -334,6 +334,14 @@ export default function KeyringConfigurator() {
 
   useEffect(() => { setWebglOk(detectWebGL()); }, []);
 
+  // Switching to a shape that doesn't offer the current hole position (round has
+  // no side eye) would otherwise leave an invalid selection behind.
+  useEffect(() => {
+    if (!holePositionsFor(shapeType).some((h) => h.id === holePosition)) {
+      setHolePosition("top");
+    }
+  }, [shapeType, holePosition]);
+
   useEffect(() => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
@@ -367,6 +375,9 @@ export default function KeyringConfigurator() {
   const sizes = keyring.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes;
   // Shop only offers PLA for now (filament inventory / type selection is being reworked).
   const inStockFilaments = filaments.filter((f) => f.inStock && f.material === "PLA");
+
+  // Not every shape offers both hole positions (a round tag is top-hole only).
+  const holeOptions = holePositionsFor(shapeType);
 
   const selectedSize = sizes.find((s) => s.id === sizeId) ?? null;
   const baseFil = filaments.find((f) => f.id === baseFilamentId);
@@ -607,11 +618,13 @@ export default function KeyringConfigurator() {
           </div>
         )}
 
-        {/* Hole position selector */}
+        {/* Hole position selector — hidden when the shape only allows one position
+            (the round tag is top-hole only), same reasoning as the shape picker. */}
+        {holeOptions.length > 1 && (
         <div>
           <label className="text-sm font-semibold text-gray-700 mb-2 block">Hul til nøglering</label>
           <div className="flex gap-2">
-            {KEYRING_HOLE_POSITIONS.map((h) => {
+            {holeOptions.map((h) => {
               const isSelected = holePosition === h.id;
               return (
                 <button
@@ -631,6 +644,7 @@ export default function KeyringConfigurator() {
             })}
           </div>
         </div>
+        )}
 
         {/* Color selection */}
         {inStockFilaments.length > 0 ? (

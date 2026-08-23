@@ -42,6 +42,16 @@ const HOLE_RADIUS_MM    = 2.5;  // ring attachment hole radius
 const TAB_RADIUS_MM     = HOLE_RADIUS_MM + 1.8; // solid nub around the hole (wall ≈1.8mm)
 const TAB_CLEARANCE_MM  = 1.0;  // gap between tallest letter and tab circle
 
+// The oval's eye carries the whole tag on a split ring, and PLA splits along its
+// layer lines, so it gets a beefier version of the tab than the "auto" shape: a
+// 3mm wall instead of 1.8mm, pulled in close so it sits on a stub rather than a
+// stalk, and joined with a generous fillet — a sharp inside corner there is where
+// a printed part cracks first.
+const OVAL_TAB_RADIUS_MM    = HOLE_RADIUS_MM + 3.0; // 3mm wall around the hole
+const OVAL_TAB_CLEARANCE_MM = 0.6;  // minimal overhang between plate and eye
+const OVAL_TAB_BLEND_MM     = 2.6;  // fillet radius at the joint
+const OVAL_NECK_FACTOR      = 0.8;  // neck width relative to the eye
+
 const SCALE = 1000; // mm → clipper integer coordinates
 
 // ─── Mesh types ───────────────────────────────────────────────────────────────
@@ -443,7 +453,7 @@ function templateTextRegion(
   // Tab shapes (oval): the hole hangs off the plate, so nothing competes with the
   // lettering and it can sit dead centre — which is the whole point of the tab.
   if (!holeIsInternal) {
-    return { cx: bcx, cy: bcy, halfW: bhw * 0.78, halfH: bhh * 0.60 };
+    return { cx: bcx, cy: bcy, halfW: bhw * 0.66, halfH: bhh * 0.50 };
   }
 
   // Round: keep the text centred on the disc and only cap the dimension facing the
@@ -452,10 +462,10 @@ function templateTextRegion(
     const r = Math.min(bhw, bhh);
     if (holePosition === "side") {
       const halfW = Math.max(1, Math.abs(holeCX - bcx) - HOLE_RADIUS_MM - CLR);
-      return { cx: bcx, cy: bcy, halfW, halfH: r * 0.42 };
+      return { cx: bcx, cy: bcy, halfW, halfH: r * 0.36 };
     }
     const halfH = Math.max(1, Math.abs(holeCY - bcy) - HOLE_RADIUS_MM - CLR);
-    return { cx: bcx, cy: bcy, halfW: r * 0.78, halfH };
+    return { cx: bcx, cy: bcy, halfW: r * 0.64, halfH: Math.min(halfH, r * 0.38) };
   }
 
   if (holePosition === "side") {
@@ -571,7 +581,9 @@ export function buildKeyringMesh(
   config: KeyringConfig,
   size: KeyringSizeOption
 ): KeyringMesh {
-  const holePosition = config.holePosition ?? "top";
+  // A round tag only ever gets a top hole; pin it here too so an older order or a
+  // hand-built config can't produce a side-drilled disc.
+  const holePosition = config.shapeType === "round" ? "top" : (config.holePosition ?? "top");
 
   // "auto" = consistent LETTER size: the text arrives already scaled to the size's
   // advertised cap height and is never rescaled, so the lettering is exactly the
@@ -660,22 +672,24 @@ export function buildKeyringMesh(
       // The plate is grown back to size by the same blend it is shrunk by, so the
       // union's round joins fillet the tab joint without inflating the tag: erode
       // then dilate returns a convex shape unchanged.
-      const blend = 2.0;
+      const blend = OVAL_TAB_BLEND_MM;
+      const tabR = OVAL_TAB_RADIUS_MM;
+      const neckHalf = tabR * OVAL_NECK_FACTOR;
       const core = getShapePolygon(
         config.shapeType, (bhw - blend) * 2, (bhh - blend) * 2
       ).map((p) => ({ x: p.x + bcx, y: p.y + bcy }));
 
       let neck: P2[];
       if (holePosition === "side") {
-        holeCX = bMinX - TAB_CLEARANCE_MM - TAB_RADIUS_MM;
+        holeCX = bMinX - OVAL_TAB_CLEARANCE_MM - tabR;
         holeCY = bcy;
-        neck = rect(holeCX, holeCY - (TAB_RADIUS_MM * 0.55), bMinX + blend + 2, holeCY + (TAB_RADIUS_MM * 0.55));
+        neck = rect(holeCX, holeCY - neckHalf, bMinX + blend + 2, holeCY + neckHalf);
       } else {
         holeCX = bcx;
-        holeCY = bMaxY + TAB_CLEARANCE_MM + TAB_RADIUS_MM;
-        neck = rect(holeCX - (TAB_RADIUS_MM * 0.55), holeCY, holeCX + (TAB_RADIUS_MM * 0.55), bMaxY - blend - 2);
+        holeCY = bMaxY + OVAL_TAB_CLEARANCE_MM + tabR;
+        neck = rect(holeCX - neckHalf, holeCY, holeCX + neckHalf, bMaxY - blend - 2);
       }
-      const tab = circle(holeCX, holeCY, TAB_RADIUS_MM - blend);
+      const tab = circle(holeCX, holeCY, tabR - blend);
       body = bubbleAround([core, tab, neck], blend) ?? plate;
     } else {
       // Hole punched through the plate itself: slide it inward from the edge until
