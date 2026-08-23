@@ -26,7 +26,7 @@ export type KeyringSettings = {
 export type KeyringConfig = {
   text: string;
   font: string;          // "Roboto-Bold" | "Pacifico-Regular" | "BebasNeue-Regular"
-  shapeType: "auto" | "heart" | "oval" | "star";
+  shapeType: "auto" | "heart" | "oval" | "round" | "star";
   holePosition: "top" | "side"; // "top" = tab above text, "side" = tab left of text
   sizeId: string;        // refers to KeyringSizeOption.id
   baseFilamentId: string;
@@ -91,11 +91,13 @@ export const KEYRING_FONTS = [
   { id: "BebasNeue-Regular", label: "Bebas Neue",  cssFamily: "'Bebas Neue', sans-serif", description: "Fed og kompakt" },
 ];
 
-// Hjerte/oval er midlertidigt skjult i shoppen — ikke klar til produktion endnu
-// (geometrien i getShapePolygon()/buildKeyringMesh() understøtter dem stadig, så
-// det er kun kunde-valget der er slået fra). Tilføj dem her igen for at genaktivere.
+// Hjerte er stadig skjult i shoppen — ikke klar til produktion endnu (geometrien
+// i getShapePolygon()/buildKeyringMesh() understøtter den stadig, så det er kun
+// kunde-valget der er slået fra). Tilføj { id: "heart", ... } her for at genaktivere.
 export const KEYRING_SHAPES = [
-  { id: "auto", label: "Automatisk", description: "Tilpasses teksten" },
+  { id: "auto",  label: "Automatisk", description: "Tilpasses teksten" },
+  { id: "oval",  label: "Oval",       description: "Oval med øje" },
+  { id: "round", label: "Rund",       description: "Rund med hul" },
 ];
 
 export const KEYRING_HOLE_POSITIONS = [
@@ -165,7 +167,12 @@ export function validateConfig(
   if (config.shapeType !== "auto") {
     const ratio = CHAR_WIDTH_RATIO[config.font] ?? 0.58;
     const textWidth = fontSize * ratio * config.text.length;
-    if (textWidth / (size.widthMm - 10) < 0.3) {
+    // Measure the plate itself rather than assuming it spans widthMm — a round tag
+    // is far narrower than the size preset's width.
+    const plate = getShapePolygon(config.shapeType, size.widthMm, size.heightMm);
+    const xs = plate.map((p) => p.x);
+    const plateWidth = Math.max(...xs) - Math.min(...xs);
+    if (textWidth / Math.max(1, plateWidth - 10) < 0.3) {
       return {
         ok: true,
         warning: "Teksten vil se lille ud på denne form — prøv en kortere form eller et større format",
@@ -179,6 +186,15 @@ export function validateConfig(
 // ─── Shape polygon generation ─────────────────────────────────────────────────
 
 export type Point = { x: number; y: number };
+
+/** Round tags read best a bit larger than the oval's height — see getShapePolygon. */
+const ROUND_DIAMETER_FACTOR = 1.45;
+
+/** True when this template hangs its ring hole off an external tab, like "auto"
+ *  does, instead of punching it through the plate itself. */
+export function templateUsesTab(shapeType: string): boolean {
+  return shapeType === "oval";
+}
 
 /**
  * Returns a polygon (array of points in mm) for the given shape type.
@@ -226,6 +242,20 @@ export function getShapePolygon(
     for (let i = 0; i < steps; i++) {
       const t = (i / steps) * 2 * Math.PI;
       pts.push({ x: hw * Math.cos(t), y: hh * Math.sin(t) });
+    }
+    return pts;
+  }
+
+  if (shapeType === "round") {
+    // The size presets are elongated (45×20 … 80×35), so neither dimension is a
+    // sensible diameter on its own: the width would give a huge medallion and the
+    // height a rather mean little disc. Scaling the height lands Lille/Mellem/Stor
+    // at ~29/41/51 mm — the range real round key tags come in.
+    const r = (heightMm * ROUND_DIAMETER_FACTOR) / 2;
+    const pts: Point[] = [];
+    for (let i = 0; i < steps; i++) {
+      const t = (i / steps) * 2 * Math.PI;
+      pts.push({ x: r * Math.cos(t), y: r * Math.sin(t) });
     }
     return pts;
   }

@@ -26,7 +26,7 @@
 import ClipperLib from "clipper-lib";
 import earcutMod from "earcut";
 import type { KeyringConfig, KeyringSizeOption } from "./keyring";
-import { getShapePolygon, capHeightOf } from "./keyring";
+import { getShapePolygon, capHeightOf, templateUsesTab } from "./keyring";
 import type { Point } from "./textpaths";
 
 const earcut: (data: number[], holes?: number[], dim?: number) => number[] =
@@ -433,11 +433,30 @@ function templateTextRegion(
   shapeType: string,
   bcx: number, bcy: number, bhw: number, bhh: number,
   holeCX: number, holeCY: number,
-  holePosition: "top" | "side"
+  holePosition: "top" | "side",
+  holeIsInternal: boolean
 ): Region {
   const CLR = 2.0;   // gap from the hole
   const INSET = 2.0; // gap from the shape edge
   const isHeart = shapeType === "heart";
+
+  // Tab shapes (oval): the hole hangs off the plate, so nothing competes with the
+  // lettering and it can sit dead centre — which is the whole point of the tab.
+  if (!holeIsInternal) {
+    return { cx: bcx, cy: bcy, halfW: bhw * 0.78, halfH: bhh * 0.60 };
+  }
+
+  // Round: keep the text centred on the disc and only cap the dimension facing the
+  // hole, so it clears it without being pushed off-centre.
+  if (shapeType === "round") {
+    const r = Math.min(bhw, bhh);
+    if (holePosition === "side") {
+      const halfW = Math.max(1, Math.abs(holeCX - bcx) - HOLE_RADIUS_MM - CLR);
+      return { cx: bcx, cy: bcy, halfW, halfH: r * 0.42 };
+    }
+    const halfH = Math.max(1, Math.abs(holeCY - bcy) - HOLE_RADIUS_MM - CLR);
+    return { cx: bcx, cy: bcy, halfW: r * 0.78, halfH };
+  }
 
   if (holePosition === "side") {
     const left = holeCX + HOLE_RADIUS_MM + CLR;
@@ -624,26 +643,56 @@ export function buildKeyringMesh(
       holeCY = Math.max(...body.map((p) => p.y)) - HOLE_RADIUS_MM - 2.5;
     }
   } else {
-    // Template: fixed body. Place the hole fully inside (slide inward from the
-    // edge), then fit the text into a region that avoids it.
-    body = getShapePolygon(config.shapeType, size.widthMm, size.heightMm);
-    const xs = body.map((p) => p.x), ys = body.map((p) => p.y);
+    // Template: fixed body at the advertised size.
+    const plate = getShapePolygon(config.shapeType, size.widthMm, size.heightMm);
+    const xs = plate.map((p) => p.x), ys = plate.map((p) => p.y);
     const bMinX = Math.min(...xs), bMaxX = Math.max(...xs);
     const bMinY = Math.min(...ys), bMaxY = Math.max(...ys);
     const bcx = (bMinX + bMaxX) / 2, bcy = (bMinY + bMaxY) / 2;
     const bhw = (bMaxX - bMinX) / 2, bhh = (bMaxY - bMinY) / 2;
-    const slack = 0.6; // keep a little wall around the hole
+    const usesTab = templateUsesTab(config.shapeType);
 
-    if (holePosition === "side") {
-      holeCX = bMinX + HOLE_RADIUS_MM + 1.5; holeCY = bcy;
-      for (let g = 0; g < 80 && !circleInside(holeCX, holeCY, HOLE_RADIUS_MM + slack, body); g++) holeCX += 0.5;
+    if (usesTab) {
+      // Hang the ring hole off an external tab, exactly like the "auto" shape. That
+      // frees the whole plate for the lettering, which is what lets the text sit
+      // properly centred instead of being pushed aside by an inset hole.
+      //
+      // The plate is grown back to size by the same blend it is shrunk by, so the
+      // union's round joins fillet the tab joint without inflating the tag: erode
+      // then dilate returns a convex shape unchanged.
+      const blend = 2.0;
+      const core = getShapePolygon(
+        config.shapeType, (bhw - blend) * 2, (bhh - blend) * 2
+      ).map((p) => ({ x: p.x + bcx, y: p.y + bcy }));
+
+      let neck: P2[];
+      if (holePosition === "side") {
+        holeCX = bMinX - TAB_CLEARANCE_MM - TAB_RADIUS_MM;
+        holeCY = bcy;
+        neck = rect(holeCX, holeCY - (TAB_RADIUS_MM * 0.55), bMinX + blend + 2, holeCY + (TAB_RADIUS_MM * 0.55));
+      } else {
+        holeCX = bcx;
+        holeCY = bMaxY + TAB_CLEARANCE_MM + TAB_RADIUS_MM;
+        neck = rect(holeCX - (TAB_RADIUS_MM * 0.55), holeCY, holeCX + (TAB_RADIUS_MM * 0.55), bMaxY - blend - 2);
+      }
+      const tab = circle(holeCX, holeCY, TAB_RADIUS_MM - blend);
+      body = bubbleAround([core, tab, neck], blend) ?? plate;
     } else {
-      holeCX = bcx; holeCY = bMaxY - HOLE_RADIUS_MM - 1.5;
-      for (let g = 0; g < 80 && !circleInside(holeCX, holeCY, HOLE_RADIUS_MM + slack, body); g++) holeCY -= 0.5;
+      // Hole punched through the plate itself: slide it inward from the edge until
+      // it sits fully inside, leaving a wall around it.
+      body = plate;
+      const slack = 0.6;
+      if (holePosition === "side") {
+        holeCX = bMinX + HOLE_RADIUS_MM + 2.6; holeCY = bcy;
+        for (let g = 0; g < 80 && !circleInside(holeCX, holeCY, HOLE_RADIUS_MM + slack, body); g++) holeCX += 0.5;
+      } else {
+        holeCX = bcx; holeCY = bMaxY - HOLE_RADIUS_MM - 2.6;
+        for (let g = 0; g < 80 && !circleInside(holeCX, holeCY, HOLE_RADIUS_MM + slack, body); g++) holeCY -= 0.5;
+      }
     }
 
     const region = shrinkRegionToFit(
-      templateTextRegion(config.shapeType, bcx, bcy, bhw, bhh, holeCX, holeCY, holePosition),
+      templateTextRegion(config.shapeType, bcx, bcy, bhw, bhh, holeCX, holeCY, holePosition, !usesTab),
       body
     );
     textContours = fitContoursToRegion(rawContours, region);

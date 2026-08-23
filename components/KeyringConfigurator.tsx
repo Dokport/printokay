@@ -113,6 +113,9 @@ function KeyringPreview({
       ctx.beginPath();
       if (shapeType === "oval") {
         ctx.ellipse(0, 0, kw / 2, kh / 2, 0, 0, Math.PI * 2);
+      } else if (shapeType === "round") {
+        // Mirrors ROUND_DIAMETER_FACTOR in lib/keyring.ts.
+        ctx.arc(0, 0, (kh * 1.45) / 2, 0, Math.PI * 2);
       } else if (shapeType === "heart") {
         const hw = kw / 2;
         const hh = kh / 2;
@@ -317,7 +320,7 @@ export default function KeyringConfigurator() {
 
   const [text, setText] = useState("Dit navn");
   const [font, setFont] = useState(KEYRING_FONTS[0].id);
-  const [shapeType, setShapeType] = useState<"auto" | "heart" | "oval">("auto");
+  const [shapeType, setShapeType] = useState<"auto" | "heart" | "oval" | "round">("auto");
   const [holePosition, setHolePosition] = useState<"top" | "side">("top");
   const [sizeId, setSizeId] = useState<string | null>(null);
   const [baseFilamentId, setBaseFilamentId] = useState("");
@@ -588,7 +591,7 @@ export default function KeyringConfigurator() {
                   <button
                     key={s.id}
                     type="button"
-                    onClick={() => setShapeType(s.id as "auto" | "heart" | "oval")}
+                    onClick={() => setShapeType(s.id as "auto" | "heart" | "oval" | "round")}
                     className="flex flex-col items-center gap-1 flex-1 py-2.5 px-2 rounded-xl border-2 transition-all"
                     style={{
                       borderColor: isSelected ? primaryColor : "#e5e7eb",

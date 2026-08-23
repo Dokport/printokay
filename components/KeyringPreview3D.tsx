@@ -241,7 +241,7 @@ function ScaleKey({
 type Props = {
   text: string;
   font: string;
-  shapeType: "auto" | "heart" | "oval";
+  shapeType: "auto" | "heart" | "oval" | "round";
   holePosition: "top" | "side";
   size: KeyringSizeOption | null;
   fontSize: number;       // mm; <=0 → auto (matches generateKeyringStl fallback)
