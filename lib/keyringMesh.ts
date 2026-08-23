@@ -47,10 +47,16 @@ const TAB_CLEARANCE_MM  = 1.0;  // gap between tallest letter and tab circle
 // 3mm wall instead of 1.8mm, pulled in close so it sits on a stub rather than a
 // stalk, and joined with a generous fillet — a sharp inside corner there is where
 // a printed part cracks first.
-const OVAL_TAB_RADIUS_MM    = HOLE_RADIUS_MM + 3.8; // 3.8mm wall around the hole
-const OVAL_TAB_CLEARANCE_MM = 0.5;  // minimal overhang between plate and eye
-const OVAL_TAB_BLEND_MM     = 3.0;  // fillet radius at the joint
-const OVAL_NECK_FACTOR      = 0.9;  // neck width relative to the eye
+const OVAL_TAB_RADIUS_MM     = HOLE_RADIUS_MM + 3.8; // 3.8mm wall around the hole
+const OVAL_TAB_BLEND_MM      = 3.0;  // fillet radius where the eye meets the plate
+/**
+ * How far the eye sticks out past the plate. The hole is sunk INTO the oval until
+ * only this much of the surrounding boss protrudes, so most of the material around
+ * the hole is plate body rather than an added lug — strong, but barely a bump. The
+ * wall stays OVAL_TAB_RADIUS_MM − HOLE_RADIUS_MM whatever this is set to; lowering
+ * it only trades protrusion for headroom above the lettering.
+ */
+const OVAL_TAB_PROTRUSION_MM = 5.5;
 
 const SCALE = 1000; // mm → clipper integer coordinates
 
@@ -450,10 +456,19 @@ function templateTextRegion(
   const INSET = 2.0; // gap from the shape edge
   const isHeart = shapeType === "heart";
 
-  // Tab shapes (oval): the hole hangs off the plate, so nothing competes with the
-  // lettering and it can sit dead centre — which is the whole point of the tab.
+  // Tab shapes (oval): the boss is sunk into the plate so it barely protrudes, which
+  // puts the hole partly inside the outline. The text still sits dead centre — that
+  // is the whole point of the tab — but the dimension facing the hole is capped so
+  // the two never meet.
   if (!holeIsInternal) {
-    return { cx: bcx, cy: bcy, halfW: bhw * 0.66, halfH: bhh * 0.50 };
+    const halfW = bhw * 0.66;
+    const halfH = bhh * 0.50;
+    if (holePosition === "side") {
+      const limit = Math.max(1, Math.abs(holeCX - bcx) - HOLE_RADIUS_MM - CLR);
+      return { cx: bcx, cy: bcy, halfW: Math.min(halfW, limit), halfH };
+    }
+    const limit = Math.max(1, Math.abs(holeCY - bcy) - HOLE_RADIUS_MM - CLR);
+    return { cx: bcx, cy: bcy, halfW, halfH: Math.min(halfH, limit) };
   }
 
   // Round: keep the text centred on the disc and only cap the dimension facing the
@@ -674,23 +689,22 @@ export function buildKeyringMesh(
       // then dilate returns a convex shape unchanged.
       const blend = OVAL_TAB_BLEND_MM;
       const tabR = OVAL_TAB_RADIUS_MM;
-      const neckHalf = tabR * OVAL_NECK_FACTOR;
       const core = getShapePolygon(
         config.shapeType, (bhw - blend) * 2, (bhh - blend) * 2
       ).map((p) => ({ x: p.x + bcx, y: p.y + bcy }));
 
-      let neck: P2[];
+      // Sink the boss into the plate until only OVAL_TAB_PROTRUSION_MM of it shows.
+      // Because it overlaps the outline it also needs no neck to hang off — most of
+      // the material around the hole simply IS the plate.
       if (holePosition === "side") {
-        holeCX = bMinX - OVAL_TAB_CLEARANCE_MM - tabR;
+        holeCX = bMinX - OVAL_TAB_PROTRUSION_MM + tabR;
         holeCY = bcy;
-        neck = rect(holeCX, holeCY - neckHalf, bMinX + blend + 2, holeCY + neckHalf);
       } else {
         holeCX = bcx;
-        holeCY = bMaxY + OVAL_TAB_CLEARANCE_MM + tabR;
-        neck = rect(holeCX - neckHalf, holeCY, holeCX + neckHalf, bMaxY - blend - 2);
+        holeCY = bMaxY + OVAL_TAB_PROTRUSION_MM - tabR;
       }
       const tab = circle(holeCX, holeCY, tabR - blend);
-      body = bubbleAround([core, tab, neck], blend) ?? plate;
+      body = bubbleAround([core, tab], blend) ?? plate;
     } else {
       // Hole punched through the plate itself: slide it inward from the edge until
       // it sits fully inside, leaving a wall around it.
