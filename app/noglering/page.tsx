@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 
-// Nøglering-konfiguratoren er nu integreret direkte i shoppen.
-export default function NøgleringRedirect() {
-  redirect("/");
+// Konfiguratoren bor i shoppen på forsiden, men den fortjener sin egen adresse —
+// den er nem at huske, og admin-testpanelet kræver at man lander her fra /admin i
+// samme faneblad.
+export default function NoegleringPage() {
+  redirect("/?noglering");
 }

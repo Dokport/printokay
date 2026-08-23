@@ -332,11 +332,22 @@ export default function KeyringConfigurator() {
   // A sticky preview would then cover the whole visible area, so we un-stick it
   // while editing so the field can scroll into view above the keyboard.
   const [editingText, setEditingText] = useState(false);
-  // Admin-only test download. Null for every normal visitor, so the block below
-  // never renders for them.
+  // Admin-only test download. Stays null for every normal visitor, so the block at
+  // the bottom never renders for them. The token is only trusted once the SERVER has
+  // confirmed it — a made-up sessionStorage value must not reveal the panel. The
+  // download route enforces the same check independently, so this is about not
+  // showing controls that aren't yours, not about guarding the files.
   const [adminToken, setAdminToken] = useState<string | null>(null);
   const [testDl, setTestDl] = useState<"idle" | "busy" | "err">("idle");
-  useEffect(() => { setAdminToken(getAdminToken()); }, []);
+  useEffect(() => {
+    const token = getAdminToken();
+    if (!token) return;
+    let cancelled = false;
+    fetch("/api/admin-check", { headers: { "x-admin-token": token } })
+      .then((res) => { if (!cancelled && res.ok) setAdminToken(token); })
+      .catch(() => { /* not admin — leave hidden */ });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => { setWebglOk(detectWebGL()); }, []);
 

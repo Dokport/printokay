@@ -23,9 +23,22 @@ export default function ShopClient({ products, settings }: Props) {
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const configRef = useRef<HTMLDivElement>(null);
 
+  // ?noglering (where /noglering lands) opens the configurator straight away, so it
+  // can be linked to and reloaded without clicking through the shop. Done after
+  // mount rather than in the initial state: the server has no location to read, and
+  // disagreeing with it there breaks hydration.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("noglering")) {
+      setActiveCategory(KEYRING_TAB);
+    }
+  }, []);
+
   // Reset to shop view when header logo/Shop link is clicked while already on "/"
   useEffect(() => {
-    const handler = () => setActiveCategory("alle");
+    const handler = () => {
+      setActiveCategory("alle");
+      window.history.replaceState(null, "", "/");
+    };
     window.addEventListener("shop:reset", handler);
     return () => window.removeEventListener("shop:reset", handler);
   }, []);
@@ -40,6 +53,8 @@ export default function ShopClient({ products, settings }: Props) {
 
   function openKeyring() {
     setActiveCategory(KEYRING_TAB);
+    // Make the configurator reloadable/shareable without a full route of its own.
+    window.history.replaceState(null, "", "/?noglering");
     // Let the config render, then bring it into view smoothly.
     requestAnimationFrame(() => {
       configRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
