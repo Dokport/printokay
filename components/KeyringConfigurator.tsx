@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getAdminToken } from "@/lib/adminSession";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCart } from "@/lib/cartContext";
@@ -331,6 +332,11 @@ export default function KeyringConfigurator() {
   // A sticky preview would then cover the whole visible area, so we un-stick it
   // while editing so the field can scroll into view above the keyboard.
   const [editingText, setEditingText] = useState(false);
+  // Admin-only test download. Null for every normal visitor, so the block below
+  // never renders for them.
+  const [adminToken, setAdminToken] = useState<string | null>(null);
+  const [testDl, setTestDl] = useState<"idle" | "busy" | "err">("idle");
+  useEffect(() => { setAdminToken(getAdminToken()); }, []);
 
   useEffect(() => { setWebglOk(detectWebGL()); }, []);
 
@@ -402,6 +408,42 @@ export default function KeyringConfigurator() {
   // preview card, so their enabled-state can never drift apart.
   const canBuy =
     validation.ok && !!baseFilamentId && !!textFilamentId && baseFilamentId !== textFilamentId;
+
+  /** Build the current design as a real print file, bypassing cart and checkout. */
+  async function downloadTestFile(format: "3mf" | "stl") {
+    if (!adminToken || !selectedSize) return;
+    setTestDl("busy");
+    try {
+      const res = await fetch("/api/keyring/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+        body: JSON.stringify({
+          text, font, shapeType, holePosition,
+          sizeId: selectedSize.id,
+          fontSize: fontSize ?? 0,
+          // Fall back to black-on-white so a test file works before filaments are picked.
+          baseColorHex: baseFil?.colorHex ?? "#000000",
+          textColorHex: textFil?.colorHex ?? "#ffffff",
+          format,
+        }),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      const blob = await res.blob();
+      const name =
+        res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ??
+        `test_noglering.${format}`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+      setTestDl("idle");
+    } catch (err) {
+      console.error("Testfil fejlede:", err);
+      setTestDl("err");
+    }
+  }
 
   function handleAddToCart() {
     if (!validation.ok || !selectedSize || !price || !baseFil || !textFil || !fontSize) return;
@@ -725,6 +767,41 @@ export default function KeyringConfigurator() {
           >
             Se kurv →
           </Link>
+        )}
+
+        {/* Admin-only: grab the model as a print file without placing an order. */}
+        {adminToken && (
+          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              Admin · testprint
+            </p>
+            <p className="text-xs text-gray-500 mb-3">
+              Henter modellen præcis som den står nu — ingen ordre, kurv eller betaling.
+              3MF&apos;en har begge farver og filamentskiftet indlejret.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => downloadTestFile("3mf")}
+                disabled={!selectedSize || testDl === "busy"}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {testDl === "busy" ? "Genererer…" : "⬇ 3MF med farver"}
+              </button>
+              <button
+                onClick={() => downloadTestFile("stl")}
+                disabled={!selectedSize || testDl === "busy"}
+                className="px-4 py-2 rounded-xl text-sm font-semibold border border-gray-300 text-gray-600 bg-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ⬇ STL
+              </button>
+            </div>
+            {testDl === "err" && (
+              <p className="text-xs text-red-500 mt-2">
+                Kunne ikke generere filen — se konsollen. Er admin-login udløbet?
+              </p>
+            )}
+          </div>
         )}
 
         {/* Info box */}

@@ -10,12 +10,12 @@ import { parseThreeMf, parseThreeMfMeta, parseSlicedStats } from "@/lib/threemf"
 import { upload } from "@vercel/blob/client";
 import ZoneMapper from "@/components/ZoneMapper";
 import Image from "next/image";
+import { ADMIN_SESSION_KEY as SESSION_KEY } from "@/lib/adminSession";
 
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
 const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "", modelFile: "", printFile: "", colorZones: [] as ColorZone[], previewModel: "" };
-const SESSION_KEY = "po_adm";
 
 function getStoredPw(): string | null {
   return typeof window !== "undefined" ? sessionStorage.getItem(SESSION_KEY) : null;
