@@ -36,7 +36,18 @@ export default function KurvPage() {
       return "";
     }
   }, []);
-  const subtotal = getCartTotal(items);
+  /**
+   * Prices as the SHOP sees them. The cart stores what each item cost when it was
+   * added, but checkout charges from settings — so ask the server, and never show
+   * a total Stripe won't honour. Falls back to the cart's own sums until it
+   * answers, so the page is never blank.
+   */
+  const [serverPrices, setServerPrices] = useState<number[] | null>(null);
+  const [priceError, setPriceError] = useState("");
+  const subtotal =
+    serverPrices && serverPrices.length === items.length
+      ? serverPrices.reduce((sum, p, i) => sum + p * items[i].quantity, 0)
+      : getCartTotal(items);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -52,6 +63,26 @@ export default function KurvPage() {
   const selectedOption = shippingOptions.find((s) => s.id === selectedShipping);
   const shippingPrice = selectedOption?.price ?? 0;
   const total = Math.max(0, subtotal - (promo?.discount ?? 0)) + shippingPrice;
+
+  useEffect(() => {
+    // Nothing to price, and setting state here would only cascade a render: an
+    // empty cart already totals zero through the fallback below.
+    if (items.length === 0) return;
+    let cancelled = false;
+    fetch("/api/cart/price", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (Array.isArray(d.prices)) { setServerPrices(d.prices); setPriceError(""); }
+        else setPriceError(d.error || "");
+      })
+      .catch(() => { /* keep showing the cart's own prices */ });
+    return () => { cancelled = true; };
+  }, [items]);
 
   /**
    * Re-check the applied code whenever the cart changes: the discount is tied to
@@ -153,9 +184,10 @@ export default function KurvPage() {
       <h1 className="text-3xl font-bold text-purple-800 mb-8">Din kurv</h1>
 
       <div className="flex flex-col gap-4 mb-6">
-        {items.map((item) => {
+        {items.map((item, i) => {
           const isKeyring = !!item.keyringData;
-          const itemPrice = getItemPrice(item);
+          // Shop price where we have it, so the rows agree with the total below.
+          const itemPrice = serverPrices?.[i] ?? getItemPrice(item);
           const kd = item.keyringData;
           return (
           <div key={item.cartKey} className="bg-white rounded-2xl p-4 flex items-center gap-4 shadow-sm">
@@ -289,6 +321,12 @@ export default function KurvPage() {
           {promoError && <p className="text-xs text-red-500 mt-2">{promoError}</p>}
         </div>
 
+        {priceError && (
+          <p className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+            {priceError}
+          </p>
+        )}
+
         <div className="flex flex-col gap-2 mb-6">
           <div className="flex justify-between text-gray-600">
             <span>Varer</span>
@@ -309,7 +347,7 @@ export default function KurvPage() {
             <span className="text-purple-700 text-2xl">{formatPrice(total)}</span>
           </div>
         </div>
-        <button onClick={handleCheckout} disabled={loading || !selectedShipping}
+        <button onClick={handleCheckout} disabled={loading || !selectedShipping || !!priceError}
           className="w-full bg-purple-600 text-white py-4 rounded-full font-bold text-lg hover:bg-purple-700 transition-colors disabled:opacity-60">
           {loading
             ? "Sender dig videre..."

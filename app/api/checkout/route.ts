@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { CartItem, getItemPrice } from "@/lib/cart";
-import { DEFAULT_SETTINGS, SiteSettings } from "@/lib/settings";
-import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import { CartItem } from "@/lib/cart";
+import { writeJsonFile } from "@/lib/storage";
+import { loadPricing, priceCart } from "@/lib/pricing";
 import { pendingCartKey } from "@/lib/fulfillment";
 import { checkPromo, reservePromo, releasePromo, normalizePromoCode } from "@/lib/promos";
 
@@ -21,9 +21,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ingen varer" }, { status: 400 });
   }
 
-  const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
-  const settings = { ...DEFAULT_SETTINGS, ...stored };
-  const allOptions = settings.shippingOptions ?? DEFAULT_SETTINGS.shippingOptions;
+  // Every amount below comes from here, never from the request body.
+  const pricing = await loadPricing();
+  const priced = priceCart(items, pricing);
+  if (!priced.ok) return NextResponse.json({ error: priced.error }, { status: 400 });
+  const unitPrices = priced.prices;
+
+  const settings = pricing.settings;
+  const allOptions = settings.shippingOptions ?? [];
 
   // Use selected option if provided, otherwise all options
   const optionsToUse = shippingOptionId
@@ -46,12 +51,12 @@ export async function POST(req: NextRequest) {
   // display is irrelevant — this is the only check that can move money.
   let promo: { code: string; discount: number; cartKey: string } | null = null;
   if (promoCode && normalizePromoCode(promoCode)) {
-    const check = await checkPromo(promoCode, items, holderId);
+    const check = await checkPromo(promoCode, items, holderId, pricing);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
     promo = { code: check.promo.code, discount: check.discount, cartKey: check.cartKey };
   }
 
-  const lineItems = items.flatMap((item) => {
+  const lineItems = items.flatMap((item, i) => {
     const isKeyring = !!item.keyringData;
     const name = isKeyring
       ? `Nøglering: "${item.keyringData!.text}" (${item.keyringData!.sizeLabel})`
@@ -71,7 +76,7 @@ export async function POST(req: NextRequest) {
       if (item.note) descParts.push(`Note: ${item.note}`);
     }
 
-    const unitAmount = getItemPrice(item);
+    const unitAmount = unitPrices[i];
     const description = descParts.filter(Boolean).join(" — ");
     const priceData = (amount: number, suffix = "") => ({
       price_data: {

@@ -15,10 +15,9 @@
 
 import Stripe from "stripe";
 import type { CartItem } from "./cart";
-import { getItemPrice } from "./cart";
 import { DEFAULT_KEYRING_SETTINGS } from "./keyring";
 import type { KeyringConfig } from "./keyring";
-import { DEFAULT_SETTINGS, type SiteSettings } from "./settings";
+import type { SiteSettings } from "./settings";
 import { readJsonFile, deleteFile } from "./storage";
 import {
   addOrder,
@@ -31,6 +30,7 @@ import {
 import { generateKeyringStl } from "./stl";
 import { sendOrderConfirmation } from "./email";
 import { redeemPromo } from "./promos";
+import { loadPricing } from "./pricing";
 
 export type PendingCart = {
   items: CartItem[];
@@ -77,9 +77,9 @@ async function buildOrderItem(
   ci: CartItem,
   orderId: string,
   idx: number,
-  settings: SiteSettings
+  settings: SiteSettings,
+  unitAmount: number
 ): Promise<OrderItem> {
-  const unitAmount = getItemPrice(ci);
 
   if (ci.keyringData) {
     const kd = ci.keyringData;
@@ -172,13 +172,19 @@ export async function finalizeOrder(sessionId: string): Promise<Order | null> {
   const cart = await readJsonFile<PendingCart | null>(pendingCartKey(sessionId), null);
   if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) return null;
 
-  const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
-  const settings = { ...DEFAULT_SETTINGS, ...stored } as SiteSettings;
+  const pricing = await loadPricing();
+  const settings = pricing.settings;
 
   const orderId = `order-${Date.now()}`;
   const items: OrderItem[] = [];
   for (let i = 0; i < cart.items.length; i++) {
-    items.push(await buildOrderItem(cart.items[i], orderId, i, settings));
+    // Price from the shop, not from the stashed cart — the same rule checkout used.
+    items.push(
+      await buildOrderItem(
+        cart.items[i], orderId, i, settings,
+        pricing.priceOf(cart.items[i]) ?? 0
+      )
+    );
   }
 
   const computedTotal = items.reduce((sum, it) => sum + it.unitAmount * it.quantity, 0);

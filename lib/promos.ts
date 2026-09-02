@@ -10,7 +10,8 @@
  * decides what the cart displays.
  */
 import { readJsonFile, writeJsonFile } from "./storage";
-import { getItemPrice, type CartItem } from "./cart";
+import type { CartItem } from "./cart";
+import { loadPricing, type Pricing } from "./pricing";
 
 const PROMOS_FILE = "promos.json";
 
@@ -75,15 +76,23 @@ export function promoStatus(p: PromoCode, now = Date.now()): PromoStatus {
 }
 
 /**
- * What a code is worth against this cart: the priciest keyring in it, one unit.
+ * What a code is worth against this cart: ONE unit of the priciest keyring in it,
+ * priced from the shop's own settings rather than from the cart. Ordering three of
+ * the same keyring still discounts exactly one; raising a price in admin raises
+ * what the code is worth, with nothing to change here.
+ *
  * Returns null when the cart has no keyring — the code stays untouched, so the
  * customer can come back with one.
  */
-export function keyringDiscountFor(items: CartItem[]): { cartKey: string; amount: number } | null {
+export function keyringDiscountFor(
+  items: CartItem[],
+  pricing: Pricing
+): { cartKey: string; amount: number } | null {
   let best: { cartKey: string; amount: number } | null = null;
   for (const item of items) {
     if (!item.keyringData) continue;
-    const amount = getItemPrice(item);
+    const amount = pricing.priceOf(item);
+    if (amount === null) continue;
     if (!best || amount > best.amount) best = { cartKey: item.cartKey, amount };
   }
   return best && best.amount > 0 ? best : null;
@@ -101,7 +110,8 @@ export type PromoCheck =
 export async function checkPromo(
   raw: string,
   items: CartItem[],
-  holderId?: string
+  holderId?: string,
+  pricing?: Pricing
 ): Promise<PromoCheck> {
   const code = normalizePromoCode(raw);
   if (!code) return { ok: false, error: "Skriv en promokode." };
@@ -118,7 +128,7 @@ export async function checkPromo(
     return { ok: false, error: "Promokoden er i brug lige nu. Prøv igen om lidt." };
   }
 
-  const target = keyringDiscountFor(items);
+  const target = keyringDiscountFor(items, pricing ?? (await loadPricing()));
   if (!target) {
     return { ok: false, error: "Koden giver en gratis nøglering — læg en nøglering i kurven først." };
   }
