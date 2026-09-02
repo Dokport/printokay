@@ -142,13 +142,38 @@ export function calcFontSize(
 }
 
 /**
- * Cap height of ONE line. Two lines share the height a single line would have had
- * — plus the gap between them — so the block stays the advertised height and the
- * keyring doesn't grow. The 2.3 is 2 lines plus a gap of 0.3 of a line.
+ * The size a customer picks means LETTER height, not plate size — that is the whole
+ * point of naming the sizes after the text. So a second line must not shrink the
+ * lettering down to fit the old plate; it keeps most of its height and the keyring
+ * grows instead. Squeezing two lines into a Lille plate was what made Lille unusable:
+ * 3.7mm letters with a 1.1mm gap between colours.
+ *
+ * Not the FULL height, though — two lines at full size would make a Lille bigger
+ * than a Mellem, which is absurd to sell. This ratio and TWO_LINE_PLATE_GROWTH split
+ * the difference between them.
  */
+export const TWO_LINE_CAP_RATIO = 0.65;
+
+/** How much taller a template plate gets when the text has two lines. */
+export const TWO_LINE_PLATE_GROWTH = 1.28;
+
+/** Cap height of ONE line of the given text. */
 export function lineCapHeight(text: string, size: KeyringSizeOption): number {
   const lines = Math.max(1, splitTextLines(text).length);
-  return lines > 1 ? capHeightOf(size) / 2.3 : capHeightOf(size);
+  return lines > 1 ? capHeightOf(size) * TWO_LINE_CAP_RATIO : capHeightOf(size);
+}
+
+/**
+ * The plate a fixed-shape template needs for this text. Only the height grows: a
+ * second line adds rows, not length, and the round tag derives its diameter from
+ * the height so it grows with it.
+ */
+export function plateSizeFor(
+  size: KeyringSizeOption,
+  lineCount: number
+): KeyringSizeOption {
+  if (lineCount <= 1) return size;
+  return { ...size, heightMm: size.heightMm * TWO_LINE_PLATE_GROWTH };
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -199,7 +224,8 @@ export function validateConfig(
     const textWidth = fontSize * ratio * longest;
     // Measure the plate itself rather than assuming it spans widthMm — a round tag
     // is far narrower than the size preset's width.
-    const plate = getShapePolygon(config.shapeType, size.widthMm, size.heightMm);
+    const grown = plateSizeFor(size, lines.length);
+    const plate = getShapePolygon(config.shapeType, grown.widthMm, grown.heightMm);
     const xs = plate.map((p) => p.x);
     const plateWidth = Math.max(...xs) - Math.min(...xs);
     if (textWidth / Math.max(1, plateWidth - 10) < 0.3) {

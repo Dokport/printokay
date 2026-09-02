@@ -26,7 +26,7 @@
 import ClipperLib from "clipper-lib";
 import earcutMod from "earcut";
 import type { KeyringConfig, KeyringSizeOption } from "./keyring";
-import { getShapePolygon, capHeightOf, templateUsesTab } from "./keyring";
+import { getShapePolygon, capHeightOf, lineCapHeight, plateSizeFor, templateUsesTab } from "./keyring";
 import type { Point } from "./textpaths";
 import { splitTextLines } from "./textpaths";
 
@@ -592,8 +592,8 @@ function scaleContoursAboutCenter(contours: P2[][], s: number): P2[][] {
  * Plate margin around the lettering. Tied to the letter size (not the plate, which has
  * no fixed size any more) so every size keeps the same visual proportions.
  */
-function autoMargin(size: KeyringSizeOption): number {
-  return capHeightOf(size) * 0.32;
+function autoMargin(size: KeyringSizeOption, text = ""): number {
+  return lineCapHeight(text, size) * 0.32;
 }
 
 /**
@@ -631,7 +631,7 @@ export function buildKeyringMesh(
       const maxX = Math.max(...allPts.map((p) => p.x));
       const minY = Math.min(...allPts.map((p) => p.y));
       const maxY = Math.max(...allPts.map((p) => p.y));
-      const marginMm = autoMargin(size);
+      const marginMm = autoMargin(size, config.text);
       const neckHalf = TAB_RADIUS_MM * 0.65;
 
       // The hole always sits clear of ALL text (left of / above everything), and a neck
@@ -680,8 +680,10 @@ export function buildKeyringMesh(
       holeCY = Math.max(...body.map((p) => p.y)) - HOLE_RADIUS_MM - 2.5;
     }
   } else {
-    // Template: fixed body at the advertised size.
-    const plate = getShapePolygon(config.shapeType, size.widthMm, size.heightMm);
+    // Template: fixed body at the advertised size — grown taller when the text has
+    // two lines, so the extra row costs plate rather than letter height.
+    const plateSize = plateSizeFor(size, splitTextLines(config.text).length);
+    const plate = getShapePolygon(config.shapeType, plateSize.widthMm, plateSize.heightMm);
     const xs = plate.map((p) => p.x), ys = plate.map((p) => p.y);
     const bMinX = Math.min(...xs), bMaxX = Math.max(...xs);
     const bMinY = Math.min(...ys), bMaxY = Math.max(...ys);
