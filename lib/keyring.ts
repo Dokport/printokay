@@ -18,6 +18,15 @@ export type KeyringSizeOption = {
   widthMm: number;   // plate size for the template shapes (heart/oval) only
   heightMm: number;  // plate size for the template shapes (heart/oval) only
   basePrice: number; // i øre, fx 5900
+  /**
+   * Plate footprint this size is sold as, in cm².
+   *
+   * The size is one fixed price, so it has to be one fixed amount of keyring. Left
+   * to itself the geometry gave the same "Lille" price to a 4cm² "Bo" and an 11cm²
+   * "Alexandra", and to a round tag worth less than an oval one. The mesh is scaled
+   * to land here instead, so every shape and every name is the same value.
+   */
+  areaCm2: number;
 };
 
 export type KeyringSettings = {
@@ -48,9 +57,11 @@ export const DEFAULT_KEYRING_SETTINGS: KeyringSettings = {
   enabled: true,
   // Always 2-colour; basePrice is the all-in price (no separate surcharge).
   sizes: [
-    { id: "small",  label: "Lille",  textHeightMm: 10, widthMm: 45, heightMm: 20, basePrice: 7900 },
-    { id: "medium", label: "Mellem", textHeightMm: 14, widthMm: 60, heightMm: 28, basePrice: 9900 },
-    { id: "large",  label: "Stor",   textHeightMm: 18, widthMm: 80, heightMm: 35, basePrice: 11900 },
+    // areaCm2 is what the size actually sells; widthMm/heightMm only set the shapes'
+    // proportions, which are then scaled to hit it.
+    { id: "small",  label: "Lille",  textHeightMm: 10, widthMm: 45, heightMm: 20, areaCm2: 7.5,  basePrice: 7900 },
+    { id: "medium", label: "Mellem", textHeightMm: 14, widthMm: 60, heightMm: 28, areaCm2: 13.5, basePrice: 9900 },
+    { id: "large",  label: "Stor",   textHeightMm: 18, widthMm: 80, heightMm: 35, areaCm2: 21.5, basePrice: 11900 },
   ],
 };
 
@@ -67,6 +78,16 @@ const CAP_HEIGHT_RATIO: Record<string, number> = {
 
 /** Longest name we accept. This alone bounds the keyring's length — text is never
  *  scaled down to fit, so the lettering is always exactly the advertised size. */
+/**
+ * Smallest lettering we will print.
+ *
+ * The text stands 1.2mm proud and is laid down by a 0.4mm nozzle, so below roughly
+ * this cap height the counters — the holes in a, e, o — close up and the name turns
+ * into a smudge. Since a size is a fixed area, a longer name means smaller letters;
+ * this is the point where the size simply has no room for another character.
+ */
+export const MIN_CAP_HEIGHT_MM = 4.0;
+
 export const MAX_TEXT_LENGTH = 15;
 
 /**
@@ -119,7 +140,7 @@ export function holePositionsFor(shapeType: string) {
 
 // ─── Price calculation ────────────────────────────────────────────────────────
 
-// Keyrings are always 2-colour now, so the price is simply the size's (all-in) price.
+/** One price per size — every size is built to the same plate area. */
 export function calcPrice(size: KeyringSizeOption): number {
   return size.basePrice;
 }

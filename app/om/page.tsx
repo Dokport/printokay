@@ -1,12 +1,13 @@
 import Image from "next/image";
-import { SiteSettings, DEFAULT_SETTINGS } from "@/lib/settings";
+import { SiteSettings } from "@/lib/settings";
 import { readJsonFile } from "@/lib/storage";
+import { mergeSettings } from "@/lib/settingsMerge";
 
 export const dynamic = "force-dynamic";
 
 export default async function OmPage() {
   const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
-  const s: SiteSettings = { ...DEFAULT_SETTINGS, ...stored };
+  const s: SiteSettings = mergeSettings(stored);
 
   return (
     <div className="max-w-2xl mx-auto py-8">

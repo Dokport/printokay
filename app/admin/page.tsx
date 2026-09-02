@@ -1457,11 +1457,16 @@ export default function AdminPage() {
           <div className="bg-white rounded-2xl p-6 shadow-sm">
             <h2 className="font-semibold text-gray-800 mb-4">💰 Nøglering størrelser og priser</h2>
             <p className="text-sm text-gray-500 mb-4">
-              Bogstavhøjden er det der adskiller størrelserne — længden følger navnet. Gem via knappen herunder.
+              Arealet er det størrelsen sælger: nøgleringen skaleres til at fylde
+              præcis så meget, uanset form, navn og antal linjer — så den ene pris
+              altid er den samme mængde nøglering. Bogstavhøjden er det store navn
+              skrives i; er navnet langt, skrives det mindre, og løber det under det
+              printbare, spærrer butikken for flere tegn.
             </p>
+
             <div className="flex flex-col gap-3 mb-4">
               {(settings.keyring?.sizes ?? DEFAULT_KEYRING_SETTINGS.sizes).map((size, i) => {
-                const patch = (field: "basePrice" | "textHeightMm", value: number) =>
+                const patch = (field: "basePrice" | "textHeightMm" | "areaCm2", value: number) =>
                   setSettings((s) => ({
                     ...s,
                     keyring: {
@@ -1484,6 +1489,18 @@ export default function AdminPage() {
                         value={capHeightOf(size)}
                         onChange={(e) => patch("textHeightMm", Math.round(parseFloat(e.target.value)) || 0)}
                         className="w-16 border border-gray-200 rounded-xl px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 text-right"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500">Areal (cm²):</label>
+                      <input
+                        type="number"
+                        min="2"
+                        max="100"
+                        step="0.5"
+                        value={size.areaCm2 ?? ""}
+                        onChange={(e) => patch("areaCm2", parseFloat(e.target.value) || 0)}
+                        className="w-20 border border-gray-200 rounded-xl px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 text-right"
                       />
                     </div>
                     <div className="flex items-center gap-2 ml-auto">

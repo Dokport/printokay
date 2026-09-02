@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SiteSettings, DEFAULT_SETTINGS } from "@/lib/settings";
+import { SiteSettings } from "@/lib/settings";
 import { readJsonFile, writeJsonFile } from "@/lib/storage";
 import { isAdmin } from "@/lib/isAdmin";
+import { mergeSettings } from "@/lib/settingsMerge";
 
 async function readSettings(): Promise<SiteSettings> {
   const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
-  return { ...DEFAULT_SETTINGS, ...stored };
+  return mergeSettings(stored);
 }
 
 export async function GET() {

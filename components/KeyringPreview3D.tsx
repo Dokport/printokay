@@ -15,29 +15,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Bounds, Line } from "@react-three/drei";
 import * as THREE from "three";
-import { parse } from "opentype.js";
+import { loadFont } from "@/lib/fontLoader";
 import { contoursFromFont, type OpenTypeFontLike } from "@/lib/textpaths";
 import { buildKeyringMesh, TOTAL_HEIGHT_MM, type Tri } from "@/lib/keyringMesh";
 import { calcFontSize, type KeyringConfig, type KeyringSizeOption } from "@/lib/keyring";
 import { splitTextLines } from "@/lib/textpaths";
 
-// ─── Font loading (browser): fetch + parse once per font id, cached ────────────
 
-const fontCache = new Map<string, Promise<OpenTypeFontLike>>();
-
-function loadFont(fontId: string): Promise<OpenTypeFontLike> {
-  let p = fontCache.get(fontId);
-  if (!p) {
-    p = fetch(`/fonts/${fontId}.ttf`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Kunne ikke hente font: ${fontId}`);
-        return r.arrayBuffer();
-      })
-      .then((buf) => parse(buf) as unknown as OpenTypeFontLike);
-    fontCache.set(fontId, p);
-  }
-  return p;
-}
 
 // ─── Triangle list → three.js geometry ─────────────────────────────────────────
 

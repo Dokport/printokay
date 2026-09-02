@@ -6,9 +6,10 @@
  * sourceId) are preserved untouched, and re-running the sync is idempotent.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { SiteSettings, DEFAULT_SETTINGS, FilamentSpool } from "@/lib/settings";
+import { SiteSettings, FilamentSpool } from "@/lib/settings";
 import { readJsonFile, writeJsonFile } from "@/lib/storage";
 import { isSyncAuthed } from "@/lib/isSyncAuthed";
+import { mergeSettings } from "@/lib/settingsMerge";
 
 type IncomingSpool = {
   sourceId: string;
@@ -22,7 +23,7 @@ type IncomingSpool = {
 
 async function readSettings(): Promise<SiteSettings> {
   const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
-  return { ...DEFAULT_SETTINGS, ...stored };
+  return mergeSettings(stored);
 }
 
 export async function POST(req: NextRequest) {

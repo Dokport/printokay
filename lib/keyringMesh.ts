@@ -77,6 +77,18 @@ export type KeyringMesh = {
   text: Tri[];
   /** Ring-attachment hole, so a preview can thread a split ring through it. */
   hole: { cx: number; cy: number; r: number };
+  /**
+   * Plate footprint in mm², hole already subtracted. This is what the keyring
+   * costs to make — print time on a flat part tracks area almost exactly — so it
+   * is what the price is worked out from, rather than the size label.
+   */
+  areaMm2: number;
+  /**
+   * What the incoming lettering was multiplied by to land on the target area. The
+   * configurator turns this into the achieved letter height, which is how it knows
+   * when a name has stopped fitting.
+   */
+  textScale: number;
 };
 type P2 = Point;
 
@@ -552,6 +564,9 @@ function shrinkRegionToFit(region: Region, body: P2[]): Region {
   return { cx, cy, halfW: halfW * 0.96, halfH: halfH * 0.96 };
 }
 
+/** The scale the last fitContoursToRegion applied — reported as the mesh's textScale. */
+let lastFitScale = 1;
+
 /** Uniformly scale + translate contours to fill `region`, keeping them centered. */
 function fitContoursToRegion(contours: P2[][], region: Region): P2[][] {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -564,6 +579,7 @@ function fitContoursToRegion(contours: P2[][], region: Region): P2[][] {
   const tw = maxX - minX, th = maxY - minY;
   if (!(tw > 0) || !(th > 0)) return contours;
   const scale = Math.min((2 * region.halfW) / tw, (2 * region.halfH) / th);
+  lastFitScale = scale;
   const tcx = (minX + maxX) / 2, tcy = (minY + maxY) / 2;
   return contours.map((c) =>
     c.map((p) => ({ x: (p.x - tcx) * scale + region.cx, y: (p.y - tcy) * scale + region.cy }))
@@ -699,8 +715,12 @@ function lineBridges(
  * Plate margin around the lettering. Tied to the letter size (not the plate, which has
  * no fixed size any more) so every size keeps the same visual proportions.
  */
-function autoMargin(size: KeyringSizeOption, text = ""): number {
-  return lineCapHeight(text, size) * 0.32;
+function autoMargin(size: KeyringSizeOption, text = "", textScale = 1): number {
+  // Follows the ACHIEVED letter size, not the nominal one. When the lettering is
+  // scaled to land on the size's target area, a fixed margin would leave a long name
+  // with a fat border and a short one with a thin one — and it would stop the plate
+  // being self-similar, which is what makes the area land in one correction.
+  return lineCapHeight(text, size) * 0.32 * textScale;
 }
 
 /**
@@ -708,11 +728,21 @@ function autoMargin(size: KeyringSizeOption, text = ""): number {
  * Triangles are NOT T-junction-repaired here; the STL path repairs the combined
  * list, the preview path renders the groups as-is.
  */
-export function buildKeyringMesh(
+/**
+ * One pass of the geometry.
+ *
+ * `plateScale` stretches a template's plate, `textScale` the lettering — the two
+ * knobs buildKeyringMesh turns to land the footprint on the size's target area.
+ */
+function buildMeshOnce(
   rawContours: P2[][],
   config: KeyringConfig,
-  size: KeyringSizeOption
+  size: KeyringSizeOption,
+  plateScale = 1,
+  textScale = 1
 ): KeyringMesh {
+  if (textScale !== 1) rawContours = scaleContoursAboutCenter(rawContours, textScale);
+  lastFitScale = 1; // "auto" never refits; templates overwrite this below
   // A round tag only ever gets a top hole; pin it here too so an older order or a
   // hand-built config can't produce a side-drilled disc.
   const holePosition = config.shapeType === "round" ? "top" : (config.holePosition ?? "top");
@@ -739,7 +769,7 @@ export function buildKeyringMesh(
     const bridges = lineBridges(
       rawContours,
       splitTextLines(config.text).length,
-      Math.max(0, MIN_LINE_BRIDGE_MM - 2 * autoMargin(size, config.text))
+      Math.max(0, MIN_LINE_BRIDGE_MM - 2 * autoMargin(size, config.text, textScale))
     ) ?? [];
     const outlines = [...groups.map((g) => g.outer), ...bridges];
 
@@ -749,7 +779,7 @@ export function buildKeyringMesh(
       const maxX = Math.max(...allPts.map((p) => p.x));
       const minY = Math.min(...allPts.map((p) => p.y));
       const maxY = Math.max(...allPts.map((p) => p.y));
-      const marginMm = autoMargin(size, config.text);
+      const marginMm = autoMargin(size, config.text, textScale);
       const neckHalf = TAB_RADIUS_MM * 0.65;
 
       // The hole always sits clear of ALL text (left of / above everything), and a neck
@@ -801,7 +831,11 @@ export function buildKeyringMesh(
     // Template: fixed body at the advertised size — grown taller when the text has
     // two lines, so the extra row costs plate rather than letter height.
     const plateSize = plateSizeFor(size, splitTextLines(config.text).length);
-    const plate = getShapePolygon(config.shapeType, plateSize.widthMm, plateSize.heightMm);
+    const plate = getShapePolygon(
+      config.shapeType,
+      plateSize.widthMm * plateScale,
+      plateSize.heightMm * plateScale
+    );
     const xs = plate.map((p) => p.x), ys = plate.map((p) => p.y);
     const bMinX = Math.min(...xs), bMaxX = Math.max(...xs);
     const bMinY = Math.min(...ys), bMaxY = Math.max(...ys);
@@ -892,5 +926,63 @@ export function buildKeyringMesh(
 
   // No post-scaling: the lettering is already at its advertised size, and leaving the
   // mesh alone keeps the ring hole at its true 5mm diameter for every name.
-  return { base, text, hole: { cx: holeCX, cy: holeCY, r: HOLE_RADIUS_MM } };
+  // Sum the bottom face: one flat, closed layer, so it is the footprint exactly —
+  // holes included as holes, tab and all.
+  let areaMm2 = 0;
+  for (const [a, b, c] of base) {
+    if (Math.min(a[2], b[2], c[2]) > 0.01) continue; // top/side triangles
+    areaMm2 += Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2;
+  }
+
+  return {
+    base, text,
+    hole: { cx: holeCX, cy: holeCY, r: HOLE_RADIUS_MM },
+    areaMm2,
+    textScale: textScale * lastFitScale,
+  };
+}
+
+/**
+ * Build the keyring, sized so its plate covers the area its size is sold as.
+ *
+ * The size a customer picks is a fixed price, so it has to be a fixed amount of
+ * keyring — otherwise "Lille" is a 4cm² tag for "Bo" and an 11cm² one for
+ * "Alexandra" at the same money, and a round tag is worth less than an oval. What
+ * the size actually buys is `areaCm2`; the lettering and the plate are scaled to
+ * land on it.
+ *
+ * Which knob moves depends on the shape. A template's plate is its own shape, so
+ * the plate is stretched and the text follows it into the region. "auto" has no
+ * plate of its own — it is a bubble around the letters — so the letters are scaled
+ * and the plate follows them.
+ *
+ * Area goes as the square of either knob, so a single correction would be exact if
+ * the ring hole scaled too. It doesn't (a split ring needs 5mm whatever the tag),
+ * so it takes a couple of passes to settle.
+ */
+export function buildKeyringMesh(
+  rawContours: P2[][],
+  config: KeyringConfig,
+  size: KeyringSizeOption
+): KeyringMesh {
+  const target = (size.areaCm2 ?? 0) * 100; // cm² → mm²
+  let mesh = buildMeshOnce(rawContours, config, size);
+  if (!(target > 0) || !(mesh.areaMm2 > 0)) return mesh;
+
+  const isAuto = config.shapeType === "auto";
+  let scale = 1;
+  for (let pass = 0; pass < 8; pass++) {
+    const correction = Math.sqrt(target / mesh.areaMm2);
+    if (Math.abs(correction - 1) < 0.005) break;
+    // The plate is self-similar under this scale, so area goes as its square and the
+    // correction is nearly exact; the passes are for the ring hole, which keeps its
+    // 5mm whatever the tag and so refuses to scale with everything else.
+    scale *= correction;
+    const next = isAuto
+      ? buildMeshOnce(rawContours, config, size, 1, scale)
+      : buildMeshOnce(rawContours, config, size, scale, 1);
+    if (!(next.areaMm2 > 0)) break;
+    mesh = next;
+  }
+  return mesh;
 }

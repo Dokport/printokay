@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getAdminToken } from "@/lib/adminSession";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -11,15 +11,20 @@ import {
   holePositionsFor,
   calcFontSize,
   calcPrice,
+  lineCapHeight,
+  MIN_CAP_HEIGHT_MM,
   validateConfig,
   DEFAULT_KEYRING_SETTINGS,
   MAX_TEXT_LENGTH,
   joinTextLines,
 } from "@/lib/keyring";
-import type { KeyringSizeOption, KeyringSettings } from "@/lib/keyring";
+import type { KeyringSizeOption, KeyringSettings, KeyringConfig } from "@/lib/keyring";
 import type { FilamentSpool } from "@/lib/settings";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 import { detectWebGL } from "@/lib/webgl";
+import { loadFont } from "@/lib/fontLoader";
+import { contoursFromFont, type OpenTypeFontLike } from "@/lib/textpaths";
+import { buildKeyringMesh } from "@/lib/keyringMesh";
 
 function hexToRgb(h: string): [number, number, number] {
   const s = h.replace("#", "");
@@ -402,6 +407,106 @@ export default function KeyringConfigurator() {
   const holeOptions = holePositionsFor(shapeType);
 
   const fullText = twoLines && text2.trim() ? `${text}\n${text2}` : text;
+  /**
+   * How tall the lettering ends up at each size, for THIS text.
+   *
+   * A size is a fixed area, so a longer name is written smaller rather than on a
+   * bigger tag. Past a point the letters stop being printable, and that is when a
+   * size has genuinely run out of room — so it is measured, not guessed from a
+   * character count that can't tell "WWWW" from "iiii".
+   */
+  const [fontObj, setFontObj] = useState<OpenTypeFontLike | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadFont(font)
+      .then((f) => { if (!cancelled) setFontObj(f); })
+      .catch(() => { if (!cancelled) setFontObj(null); });
+    return () => { cancelled = true; };
+  }, [font]);
+
+  const measureCapHeight = useCallback(
+    (candidate: string, size: KeyringSizeOption): number | null => {
+      if (!fontObj || !candidate.trim()) return null;
+      try {
+        const fs = calcFontSize(candidate, font, size) ?? 0;
+        const { textScale } = buildKeyringMesh(
+          contoursFromFont(fontObj, candidate, fs),
+          {
+            text: candidate, font, shapeType, holePosition,
+            sizeId: size.id, baseFilamentId: "", textFilamentId: "", fontSize: fs,
+          } as KeyringConfig,
+          size
+        );
+        return lineCapHeight(candidate, size) * textScale;
+      } catch {
+        return null;
+      }
+    },
+    [fontObj, font, shapeType, holePosition]
+  );
+
+  const [capBySize, setCapBySize] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!fontObj) return;
+    const timer = setTimeout(() => {
+      const measured: Record<string, number> = {};
+      for (const size of sizes) {
+        const cap = measureCapHeight(fullText, size);
+        if (cap !== null) measured[size.id] = cap;
+      }
+      setCapBySize(measured);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [fullText, sizes, measureCapHeight, fontObj]);
+
+  const sizeFits = (size: KeyringSizeOption): boolean => {
+    const cap = capBySize[size.id];
+    return cap === undefined || cap >= MIN_CAP_HEIGHT_MM;
+  };
+
+  // Changing font, shape or adding a line can push the chosen size out of range even
+  // though the text never grew. Move up rather than leaving a size selected that
+  // can't print, and say why — the price changes with it.
+  useEffect(() => {
+    const current = sizes.find((s) => s.id === sizeId);
+    if (!current) return;
+    const cap = capBySize[current.id];
+    if (cap === undefined || cap >= MIN_CAP_HEIGHT_MM) return;
+    const roomier = sizes.find((s) => (capBySize[s.id] ?? 0) >= MIN_CAP_HEIGHT_MM);
+    if (!roomier) return;
+    setSizeId(roomier.id);
+    setFullMsg(`Teksten er for lang til ${current.label.toLowerCase()} — skiftet til ${roomier.label.toLowerCase()}.`);
+    // capBySize is the trigger; re-running on sizeId would fight the change we just made.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capBySize, sizes]);
+
+  /**
+   * Refuse a keystroke that would shrink the lettering below what prints. Only
+   * growth is checked — deleting always helps, and a size the customer is already
+   * on should never trap them.
+   */
+  const [fullMsg, setFullMsg] = useState("");
+  const acceptEdit = (next: string, previous: string, other: string): boolean => {
+    if (next.length <= previous.length) { setFullMsg(""); return true; }
+    const size = sizes.find((s) => s.id === sizeId);
+    if (!size || !fontObj) return true;
+    const candidate = twoLines && other.trim()
+      ? (previous === text ? `${next}\n${other}` : `${other}\n${next}`)
+      : next;
+    const cap = measureCapHeight(candidate, size);
+    if (cap !== null && cap < MIN_CAP_HEIGHT_MM) {
+      const roomier = sizes.find((s) => (measureCapHeight(candidate, s) ?? 0) >= MIN_CAP_HEIGHT_MM);
+      setFullMsg(
+        roomier
+          ? `Der er ikke plads til flere tegn på ${size.label.toLowerCase()} — vælg ${roomier.label.toLowerCase()} for mere plads.`
+          : "Der er ikke plads til flere tegn."
+      );
+      return false;
+    }
+    setFullMsg("");
+    return true;
+  };
+
   const selectedSize = sizes.find((s) => s.id === sizeId) ?? null;
   const baseFil = filaments.find((f) => f.id === baseFilamentId);
   const textFil = filaments.find((f) => f.id === textFilamentId);
@@ -424,7 +529,8 @@ export default function KeyringConfigurator() {
   // Shared by the full-width button (bottom) and the compact one in the desktop
   // preview card, so their enabled-state can never drift apart.
   const canBuy =
-    validation.ok && !!baseFilamentId && !!textFilamentId && baseFilamentId !== textFilamentId;
+    validation.ok && !!baseFilamentId && !!textFilamentId && baseFilamentId !== textFilamentId
+    && (!selectedSize || sizeFits(selectedSize));
 
   /** Build the current design as a real print file, bypassing cart and checkout. */
   async function downloadTestFile(format: "3mf" | "stl") {
@@ -571,7 +677,7 @@ export default function KeyringConfigurator() {
           <input
             type="text"
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => { if (acceptEdit(e.target.value, text, text2)) setText(e.target.value); }}
             onFocus={(e) => {
               setEditingText(true);
               if (text === "Dit navn") setText("");
@@ -610,7 +716,7 @@ export default function KeyringConfigurator() {
                 id="line2"
                 type="text"
                 value={text2}
-                onChange={(e) => setText2(e.target.value)}
+                onChange={(e) => { if (acceptEdit(e.target.value, text2, text)) setText2(e.target.value); }}
                 onFocus={(e) => {
                   setEditingText(true);
                   setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300);
@@ -633,6 +739,9 @@ export default function KeyringConfigurator() {
               + Tilføj en linje mere
             </button>
           )}
+          {fullMsg && (
+            <p className="text-xs text-amber-600 mt-2 font-medium">{fullMsg}</p>
+          )}
         </div>
 
         {/* Size selector */}
@@ -641,12 +750,18 @@ export default function KeyringConfigurator() {
           <div className="grid grid-cols-3 gap-2">
             {sizes.map((size) => {
               const isSelected = sizeId === size.id;
+              // Every size is the same plate area, so a long name is written smaller
+              // rather than on a bigger tag — and on the small sizes it eventually
+              // stops being printable. Say so rather than letting it be chosen.
+              const fits = sizeFits(size);
               return (
                 <button
                   key={size.id}
                   type="button"
+                  disabled={!fits}
+                  title={fits ? undefined : "Teksten er for lang til denne størrelse"}
                   onClick={() => setSizeId(size.id)}
-                  className="flex flex-col items-center gap-0.5 p-3 rounded-xl border-2 transition-all text-center"
+                  className="flex flex-col items-center gap-0.5 p-3 rounded-xl border-2 transition-all text-center disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{
                     borderColor: isSelected ? primaryColor : "#e5e7eb",
                     backgroundColor: isSelected ? `color-mix(in srgb, ${primaryColor} 8%, white)` : "white",

@@ -14,7 +14,8 @@
 import { Resend } from "resend";
 import type { Order, OrderItem } from "./orders";
 import { formatPrice } from "./products";
-import { DEFAULT_SETTINGS, type SiteSettings } from "./settings";
+import type { SiteSettings } from "./settings";
+import { mergeSettings } from "./settingsMerge";
 import { readJsonFile } from "./storage";
 import { formatPromoCode, normalizePromoCode } from "./promos";
 
@@ -233,7 +234,7 @@ export async function sendOrderConfirmation(order: Order): Promise<void> {
 
   try {
     const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
-    const settings = { ...DEFAULT_SETTINGS, ...stored } as SiteSettings;
+    const settings = mergeSettings(stored);
 
     const resend = new Resend(apiKey);
     const { error } = await resend.emails.send({
@@ -270,7 +271,7 @@ export async function sendPromoCodeEmail(
   }
 
   const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
-  const settings = { ...DEFAULT_SETTINGS, ...stored } as SiteSettings;
+  const settings = mergeSettings(stored);
   const primary = settings.primaryColor || "#7c3aed";
   const siteName = settings.siteName || "printOKAY";
   const pretty = formatPromoCode(normalizePromoCode(code));

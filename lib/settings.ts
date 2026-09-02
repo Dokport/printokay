@@ -1,3 +1,6 @@
+import type { KeyringSettings, KeyringSizeOption } from "./keyring";
+export type { KeyringSettings, KeyringSizeOption };
+
 export type Category = { id: string; label: string; emoji: string };
 
 export type FilamentSpool = {
@@ -10,20 +13,6 @@ export type FilamentSpool = {
   sourceId?: string;        // Bambuddy spole-id; manuelt oprettede spoler har ingen
   remainingGrams?: number;  // restvægt fra Bambuddy
   costPerKg?: number;       // i øre — fallback til at udregne materialepris for modeller
-};
-
-export type KeyringSizeOption = {
-  id: string;         // "small" | "medium" | "large"
-  label: string;      // "Lille", "Mellem", "Stor"
-  textHeightMm: number; // the advertised size: capital-letter height
-  widthMm: number;    // plate size for the template shapes (heart/oval) only
-  heightMm: number;   // plate size for the template shapes (heart/oval) only
-  basePrice: number;  // i øre
-};
-
-export type KeyringSettings = {
-  enabled: boolean;
-  sizes: KeyringSizeOption[];
 };
 
 export type ShippingOption = {
@@ -86,9 +75,9 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     enabled: true,
     // Always 2-colour; basePrice is the all-in price (no separate surcharge).
     sizes: [
-      { id: "small",  label: "Lille",  textHeightMm: 10, widthMm: 45, heightMm: 20, basePrice: 7900 },
-      { id: "medium", label: "Mellem", textHeightMm: 14, widthMm: 60, heightMm: 28, basePrice: 9900 },
-      { id: "large",  label: "Stor",   textHeightMm: 18, widthMm: 80, heightMm: 35, basePrice: 11900 },
+      { id: "small",  label: "Lille",  textHeightMm: 10, widthMm: 45, heightMm: 20, areaCm2: 7.5,  basePrice: 7900 },
+      { id: "medium", label: "Mellem", textHeightMm: 14, widthMm: 60, heightMm: 28, areaCm2: 13.5, basePrice: 9900 },
+      { id: "large",  label: "Stor",   textHeightMm: 18, widthMm: 80, heightMm: 35, areaCm2: 21.5, basePrice: 11900 },
     ],
   },
 };

@@ -4,8 +4,9 @@ import Script from "next/script";
 import "./globals.css";
 import { CartProvider } from "@/lib/cartContext";
 import Header from "@/components/Header";
-import { SiteSettings, DEFAULT_SETTINGS } from "@/lib/settings";
+import { SiteSettings } from "@/lib/settings";
 import { readJsonFile } from "@/lib/storage";
+import { mergeSettings } from "@/lib/settingsMerge";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ const geist = Geist({ subsets: ["latin"] });
 
 async function loadSettings(): Promise<SiteSettings> {
   const stored = await readJsonFile<Partial<SiteSettings>>("settings.json", {});
-  return { ...DEFAULT_SETTINGS, ...stored };
+  return mergeSettings(stored);
 }
 
 export async function generateMetadata(): Promise<Metadata> {

@@ -1,7 +1,8 @@
 import { Product } from "@/lib/products";
-import { SiteSettings, DEFAULT_SETTINGS } from "@/lib/settings";
+import { SiteSettings } from "@/lib/settings";
 import ShopClient from "@/components/ShopClient";
 import { readJsonFile } from "@/lib/storage";
+import { mergeSettings } from "@/lib/settingsMerge";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export default async function Home() {
     readJsonFile<Partial<SiteSettings>>("settings.json", {}),
   ]);
 
-  const settings: SiteSettings = { ...DEFAULT_SETTINGS, ...storedSettings };
+  const settings: SiteSettings = mergeSettings(storedSettings);
 
   return <ShopClient products={products} settings={settings} />;
 }
