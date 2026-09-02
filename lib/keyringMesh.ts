@@ -28,6 +28,7 @@ import earcutMod from "earcut";
 import type { KeyringConfig, KeyringSizeOption } from "./keyring";
 import { getShapePolygon, capHeightOf, templateUsesTab } from "./keyring";
 import type { Point } from "./textpaths";
+import { splitTextLines } from "./textpaths";
 
 const earcut: (data: number[], holes?: number[], dim?: number) => number[] =
   // earcut ships as CJS; the default export is the function.
@@ -450,11 +451,20 @@ function templateTextRegion(
   bcx: number, bcy: number, bhw: number, bhh: number,
   holeCX: number, holeCY: number,
   holePosition: "top" | "side",
-  holeIsInternal: boolean
+  holeIsInternal: boolean,
+  lineCount = 1
 ): Region {
   const CLR = 2.0;   // gap from the hole
   const INSET = 2.0; // gap from the shape edge
   const isHeart = shapeType === "heart";
+  /**
+   * A stacked block is taller and narrower than one line, and the fit scales it
+   * uniformly — so with the single-line height budget the WIDTH would go to waste
+   * and the letters would come out far smaller than they need to be. Give the
+   * extra lines their vertical room; shrinkRegionToFit still pulls the box back
+   * inside the outline, and the hole caps still apply.
+   */
+  const tall = lineCount > 1 ? 1.55 : 1;
 
   // Tab shapes (oval): the boss is sunk into the plate so it barely protrudes, which
   // puts the hole partly inside the outline. The text still sits dead centre — that
@@ -462,7 +472,7 @@ function templateTextRegion(
   // the two never meet.
   if (!holeIsInternal) {
     const halfW = bhw * 0.66;
-    const halfH = bhh * 0.50;
+    const halfH = bhh * 0.50 * tall;
     if (holePosition === "side") {
       const limit = Math.max(1, Math.abs(holeCX - bcx) - HOLE_RADIUS_MM - CLR);
       return { cx: bcx, cy: bcy, halfW: Math.min(halfW, limit), halfH };
@@ -477,10 +487,10 @@ function templateTextRegion(
     const r = Math.min(bhw, bhh);
     if (holePosition === "side") {
       const halfW = Math.max(1, Math.abs(holeCX - bcx) - HOLE_RADIUS_MM - CLR);
-      return { cx: bcx, cy: bcy, halfW, halfH: r * 0.36 };
+      return { cx: bcx, cy: bcy, halfW, halfH: r * 0.36 * tall };
     }
     const halfH = Math.max(1, Math.abs(holeCY - bcy) - HOLE_RADIUS_MM - CLR);
-    return { cx: bcx, cy: bcy, halfW: r * 0.64, halfH: Math.min(halfH, r * 0.38) };
+    return { cx: bcx, cy: bcy, halfW: r * 0.64, halfH: Math.min(halfH, r * 0.38 * tall) };
   }
 
   if (holePosition === "side") {
@@ -720,7 +730,10 @@ export function buildKeyringMesh(
     }
 
     const region = shrinkRegionToFit(
-      templateTextRegion(config.shapeType, bcx, bcy, bhw, bhh, holeCX, holeCY, holePosition, !usesTab),
+      templateTextRegion(
+        config.shapeType, bcx, bcy, bhw, bhh, holeCX, holeCY, holePosition, !usesTab,
+        splitTextLines(config.text).length
+      ),
       body
     );
     textContours = fitContoursToRegion(rawContours, region);

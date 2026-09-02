@@ -5,6 +5,7 @@ import { writeJsonFile } from "@/lib/storage";
 import { loadPricing, priceCart } from "@/lib/pricing";
 import { pendingCartKey } from "@/lib/fulfillment";
 import { checkPromo, reservePromo, releasePromo, normalizePromoCode } from "@/lib/promos";
+import { joinTextLines } from "@/lib/textpaths";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
   const lineItems = items.flatMap((item, i) => {
     const isKeyring = !!item.keyringData;
     const name = isKeyring
-      ? `Nøglering: "${item.keyringData!.text}" (${item.keyringData!.sizeLabel})`
+      ? `Nøglering: "${joinTextLines(item.keyringData!.text)}" (${item.keyringData!.sizeLabel})`
       : item.product.name;
 
     const descParts: (string | null)[] = [];

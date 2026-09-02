@@ -6,6 +6,7 @@ import { getCartTotal, getItemPrice } from "@/lib/cart";
 import { ShippingOption } from "@/lib/settings";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { joinTextLines } from "@/lib/textpaths";
 
 export default function KurvPage() {
   const { items, removeItem, updateQuantity, clearCart } = useCart();
@@ -195,7 +196,7 @@ export default function KurvPage() {
             <div className="flex-1 min-w-0">
               {isKeyring && kd ? (
                 <>
-                  <p className="font-semibold text-gray-800">🔑 Nøglering: &ldquo;{kd.text}&rdquo;</p>
+                  <p className="font-semibold text-gray-800">🔑 Nøglering: &ldquo;{joinTextLines(kd.text)}&rdquo;</p>
                   <p className="text-xs text-gray-400 mt-0.5">{kd.sizeLabel} · {kd.font.replace(/-/g, " ")}</p>
                   <div className="flex items-center gap-3 mt-1">
                     <div className="flex items-center gap-1">

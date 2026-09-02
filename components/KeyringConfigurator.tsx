@@ -14,6 +14,7 @@ import {
   validateConfig,
   DEFAULT_KEYRING_SETTINGS,
   MAX_TEXT_LENGTH,
+  joinTextLines,
 } from "@/lib/keyring";
 import type { KeyringSizeOption, KeyringSettings } from "@/lib/keyring";
 import type { FilamentSpool } from "@/lib/settings";
@@ -320,6 +321,10 @@ export default function KeyringConfigurator() {
   });
 
   const [text, setText] = useState("Dit navn");
+  // Line 2 is optional. The two fields are joined with "\n" into the single `text`
+  // the rest of the system already understands, so nothing downstream changed.
+  const [text2, setText2] = useState("");
+  const [twoLines, setTwoLines] = useState(false);
   const [font, setFont] = useState(KEYRING_FONTS[0].id);
   const [shapeType, setShapeType] = useState<"auto" | "heart" | "oval" | "round">("auto");
   const [holePosition, setHolePosition] = useState<"top" | "side">("top");
@@ -396,6 +401,7 @@ export default function KeyringConfigurator() {
   // Not every shape offers both hole positions (a round tag is top-hole only).
   const holeOptions = holePositionsFor(shapeType);
 
+  const fullText = twoLines && text2.trim() ? `${text}\n${text2}` : text;
   const selectedSize = sizes.find((s) => s.id === sizeId) ?? null;
   const baseFil = filaments.find((f) => f.id === baseFilamentId);
   const textFil = filaments.find((f) => f.id === textFilamentId);
@@ -403,17 +409,17 @@ export default function KeyringConfigurator() {
 
   const validation = validateConfig(
     {
-      text, font, shapeType, holePosition,
+      text: fullText, font, shapeType, holePosition,
       sizeId: sizeId ?? "",
       baseFilamentId,
       textFilamentId,
-      fontSize: selectedSize ? (calcFontSize(text, font, selectedSize) ?? 0) : 0,
+      fontSize: selectedSize ? (calcFontSize(fullText, font, selectedSize) ?? 0) : 0,
     },
     selectedSize ?? undefined,
     filaments
   );
 
-  const fontSize = selectedSize ? calcFontSize(text, font, selectedSize) : null;
+  const fontSize = selectedSize ? calcFontSize(fullText, font, selectedSize) : null;
 
   // Shared by the full-width button (bottom) and the compact one in the desktop
   // preview card, so their enabled-state can never drift apart.
@@ -429,7 +435,7 @@ export default function KeyringConfigurator() {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
         body: JSON.stringify({
-          text, font, shapeType, holePosition,
+          text: fullText, font, shapeType, holePosition,
           sizeId: selectedSize.id,
           fontSize: fontSize ?? 0,
           // Fall back to black-on-white so a test file works before filaments are picked.
@@ -462,7 +468,7 @@ export default function KeyringConfigurator() {
     const keyringProduct = {
       id: "noglering",
       name: "Custom Nøglering",
-      description: `"${text}" — ${selectedSize.label}`,
+      description: `"${joinTextLines(fullText)}" — ${selectedSize.label}`,
       price,
       image: "",
       emoji: "",
@@ -474,7 +480,7 @@ export default function KeyringConfigurator() {
 
     addItem(keyringProduct, {
       keyringData: {
-        text,
+        text: fullText,
         font,
         shapeType,
         holePosition,
@@ -510,7 +516,7 @@ export default function KeyringConfigurator() {
         <p className="hidden lg:block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Forhåndsvisning</p>
         {webglOk ? (
           <KeyringPreview3D
-            text={text}
+            text={fullText}
             font={font}
             shapeType={shapeType}
             holePosition={holePosition}
@@ -521,7 +527,7 @@ export default function KeyringConfigurator() {
           />
         ) : (
           <KeyringPreview
-            text={text}
+            text={fullText}
             font={font}
             shapeType={shapeType}
             holePosition={holePosition}
@@ -583,6 +589,50 @@ export default function KeyringConfigurator() {
             } as React.CSSProperties}
           />
           <p className="text-xs text-gray-400 mt-1">{text.length}/{MAX_TEXT_LENGTH} tegn</p>
+
+          {/* Second line — opt-in, because most keyrings want one name and the
+              lettering has to shrink to fit two. */}
+          {twoLines ? (
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="line2" className="text-sm font-semibold text-gray-600">
+                  Anden linje
+                </label>
+                <button
+                  type="button"
+                  onClick={() => { setTwoLines(false); setText2(""); }}
+                  className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                >
+                  Fjern linje
+                </button>
+              </div>
+              <input
+                id="line2"
+                type="text"
+                value={text2}
+                onChange={(e) => setText2(e.target.value)}
+                onFocus={(e) => {
+                  setEditingText(true);
+                  setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300);
+                }}
+                onBlur={() => setEditingText(false)}
+                placeholder="Skriv anden linje..."
+                maxLength={MAX_TEXT_LENGTH}
+                className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:outline-none focus:ring-2 bg-white text-gray-800 text-lg font-medium"
+                style={{ "--tw-ring-color": primaryColor } as React.CSSProperties}
+              />
+              <p className="text-xs text-gray-400 mt-1">{text2.length}/{MAX_TEXT_LENGTH} tegn</p>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setTwoLines(true)}
+              className="mt-2 text-sm font-medium transition-opacity hover:opacity-70"
+              style={{ color: primaryColor }}
+            >
+              + Tilføj en linje mere
+            </button>
+          )}
         </div>
 
         {/* Size selector */}

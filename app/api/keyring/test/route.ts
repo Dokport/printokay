@@ -13,6 +13,7 @@ import { generateKeyringStl } from "@/lib/stl";
 import { DEFAULT_KEYRING_SETTINGS, calcFontSize, type KeyringConfig } from "@/lib/keyring";
 import { readJsonFile } from "@/lib/storage";
 import type { SiteSettings } from "@/lib/settings";
+import { joinTextLines } from "@/lib/textpaths";
 
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) {
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
   const textColorHex = hex(body.textColorHex, "#ffffff");
 
   const stlOnly = body.format === "stl";
-  const safeText = text.replace(/[^a-zA-Z0-9æøåÆØÅ]/g, "_").slice(0, 20) || "noglering";
+  const safeText = joinTextLines(text, "-").replace(/[^a-zA-Z0-9æøåÆØÅ-]/g, "_").slice(0, 24) || "noglering";
   const filename = `test_${shapeType}_${config.holePosition}_${sizeId}_${safeText}.${stlOnly ? "stl" : "3mf"}`;
 
   try {

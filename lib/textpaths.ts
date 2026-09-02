@@ -131,31 +131,99 @@ export interface OpenTypeFontLike {
   getPath(text: string, x: number, y: number, fontSize: number): { commands: PathCommand[] };
 }
 
+/** How many lines of text a keyring may carry. */
+export const MAX_LINES = 2;
+
+/**
+ * Split the stored text into printable lines. The text is stored as one string with
+ * "\n" between lines, so nothing downstream (orders, 3MF, STL) needed a new field.
+ */
+export function splitTextLines(text: string): string[] {
+  return (text ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .slice(0, MAX_LINES);
+}
+
+/** Text as a single line, for filenames, emails and Stripe descriptions. */
+export function joinTextLines(text: string, sep = " / "): string {
+  return splitTextLines(text).join(sep);
+}
+
+/** Gap between lines, as a fraction of the em size. */
+const LINE_GAP_EM = 0.22;
+/**
+ * …but never tighter than this once printed. Two colours meeting across a sliver
+ * of base is where a 0.4mm nozzle gives up, so the gap has a floor in millimetres
+ * regardless of how small the lettering gets.
+ */
+const MIN_LINE_GAP_MM = 1.2;
+
+function bboxOf(contours: Point[][]): { minY: number; maxY: number } | null {
+  let minY = Infinity, maxY = -Infinity;
+  for (const c of contours) for (const p of c) {
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return contours.length && minY <= maxY ? { minY, maxY } : null;
+}
+
+/** One line, centred on its own glyph bounding box (baseline-independent). */
+function oneLineContours(
+  font: OpenTypeFontLike,
+  text: string,
+  fontSize: number
+): Point[][] {
+  const textWidth = font.getAdvanceWidth(text, fontSize);
+  const textPath = font.getPath(text, -textWidth / 2, 0, fontSize);
+  const contours = commandsToContours(textPath.commands);
+
+  const box = bboxOf(contours);
+  if (box) {
+    const cy = (box.minY + box.maxY) / 2;
+    for (const c of contours) for (const p of c) p.y -= cy;
+  }
+  return contours;
+}
+
 /**
  * Extract centered text contours from an ALREADY-PARSED opentype font.
  * Pure (no fs / no fetch) → runs identically on server and in the browser.
  * fontSize = desired cap height in mm. Returns contours in mm, centered at (0,0).
+ *
+ * A "\n" in the text stacks the lines. Each line is centred on its own bounding
+ * box and separated by a constant visual gap rather than by a shared baseline
+ * grid — on a nameplate an even gap reads better than typographic line spacing,
+ * and it keeps "ANNA" over "OG BO" from drifting apart just because neither line
+ * happens to have a descender.
  */
 export function contoursFromFont(
   font: OpenTypeFontLike,
   text: string,
   fontSize: number
 ): Point[][] {
-  const textWidth = font.getAdvanceWidth(text, fontSize);
-  const startX = -textWidth / 2;
-  const textPath = font.getPath(text, startX, 0, fontSize);
-  const contours = commandsToContours(textPath.commands);
+  const lines = splitTextLines(text);
+  if (lines.length <= 1) return oneLineContours(font, lines[0] ?? "", fontSize);
 
-  // Vertically center on the glyph bounding box (baseline-independent)
-  if (contours.length) {
-    let minY = Infinity, maxY = -Infinity;
-    for (const c of contours) for (const p of c) {
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
-    }
-    const cy = (minY + maxY) / 2;
-    for (const c of contours) for (const p of c) p.y -= cy;
+  const gap = Math.max(MIN_LINE_GAP_MM, fontSize * LINE_GAP_EM);
+  const blocks = lines.map((line) => {
+    const contours = oneLineContours(font, line, fontSize);
+    const box = bboxOf(contours);
+    return { contours, height: box ? box.maxY - box.minY : 0 };
+  });
+
+  const total =
+    blocks.reduce((sum, b) => sum + b.height, 0) + gap * (blocks.length - 1);
+
+  // Walk down from the top of the block; each line ends up centred on its own slot,
+  // so the stack as a whole is already centred on (0,0).
+  let cursor = total / 2;
+  for (const b of blocks) {
+    const centre = cursor - b.height / 2;
+    for (const c of b.contours) for (const p of c) p.y += centre;
+    cursor -= b.height + gap;
   }
 
-  return contours;
+  return blocks.flatMap((b) => b.contours);
 }

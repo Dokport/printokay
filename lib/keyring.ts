@@ -1,4 +1,6 @@
 import { FilamentSpool } from "./settings";
+import { MAX_LINES, splitTextLines } from "./textpaths";
+export { MAX_LINES, splitTextLines, joinTextLines } from "./textpaths";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -136,7 +138,17 @@ export function calcFontSize(
 ): number | null {
   if (!text) return null;
   const ratio = CAP_HEIGHT_RATIO[fontId] ?? 0.711;
-  return Math.round((capHeightOf(size) / ratio) * 10) / 10;
+  return Math.round((lineCapHeight(text, size) / ratio) * 10) / 10;
+}
+
+/**
+ * Cap height of ONE line. Two lines share the height a single line would have had
+ * — plus the gap between them — so the block stays the advertised height and the
+ * keyring doesn't grow. The 2.3 is 2 lines plus a gap of 0.3 of a line.
+ */
+export function lineCapHeight(text: string, size: KeyringSizeOption): number {
+  const lines = Math.max(1, splitTextLines(text).length);
+  return lines > 1 ? capHeightOf(size) / 2.3 : capHeightOf(size);
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -150,8 +162,15 @@ export function validateConfig(
     return { ok: false, error: "Skriv den tekst der skal på nøgleringen" };
   }
 
-  if (config.text.length > MAX_TEXT_LENGTH) {
-    return { ok: false, error: `Maks. ${MAX_TEXT_LENGTH} tegn` };
+  const lines = splitTextLines(config.text);
+  if (lines.length > MAX_LINES) {
+    return { ok: false, error: `Maks. ${MAX_LINES} linjer` };
+  }
+  // Per line, not in total: the limit exists to bound how LONG the keyring gets,
+  // and a second line adds height rather than length.
+  const tooLong = lines.find((l) => l.length > MAX_TEXT_LENGTH);
+  if (tooLong) {
+    return { ok: false, error: `Maks. ${MAX_TEXT_LENGTH} tegn pr. linje` };
   }
 
   if (!size) {
@@ -176,7 +195,8 @@ export function validateConfig(
   // needs no length check — the character limit already bounds the keyring's length.)
   if (config.shapeType !== "auto") {
     const ratio = CHAR_WIDTH_RATIO[config.font] ?? 0.58;
-    const textWidth = fontSize * ratio * config.text.length;
+    const longest = lines.reduce((n, l) => Math.max(n, l.length), 0);
+    const textWidth = fontSize * ratio * longest;
     // Measure the plate itself rather than assuming it spans widthMm — a round tag
     // is far narrower than the size preset's width.
     const plate = getShapePolygon(config.shapeType, size.widthMm, size.heightMm);

@@ -19,6 +19,7 @@ import { parse } from "opentype.js";
 import { contoursFromFont, type OpenTypeFontLike } from "@/lib/textpaths";
 import { buildKeyringMesh, TOTAL_HEIGHT_MM, type Tri } from "@/lib/keyringMesh";
 import { calcFontSize, type KeyringConfig, type KeyringSizeOption } from "@/lib/keyring";
+import { splitTextLines } from "@/lib/textpaths";
 
 // ─── Font loading (browser): fetch + parse once per font id, cached ────────────
 
@@ -385,7 +386,15 @@ export default function KeyringPreview3D({
     <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs text-gray-500">
       <span>Længde <strong className="text-gray-700">{cm(geom.ring.w)} cm</strong></span>
       {geom.letters && (
-        <span>Teksthøjde <strong className="text-gray-700">{cm(geom.letters.h)} cm</strong></span>
+        // With two lines the measured block covers both, so divide it down to what
+        // the customer actually reads: the height of one line's lettering.
+        <span>
+          Teksthøjde{" "}
+          <strong className="text-gray-700">
+            {cm(geom.letters.h / Math.max(1, splitTextLines(text).length))} cm
+          </strong>
+          {splitTextLines(text).length > 1 && <span className="text-gray-400"> pr. linje</span>}
+        </span>
       )}
       <button
         type="button"

@@ -31,6 +31,7 @@ import { generateKeyringStl } from "./stl";
 import { sendOrderConfirmation } from "./email";
 import { redeemPromo } from "./promos";
 import { loadPricing } from "./pricing";
+import { joinTextLines } from "./textpaths";
 
 export type PendingCart = {
   items: CartItem[];
@@ -111,7 +112,7 @@ async function buildOrderItem(
     // it always reflects the current format — nothing to pre-generate here.
 
     return {
-      name: `Nøglering: "${kd.text}" (${kd.sizeLabel})`,
+      name: `Nøglering: "${joinTextLines(kd.text)}" (${kd.sizeLabel})`,
       description: `Font: ${kd.font.replace(/-/g, " ")}`,
       emoji: "🔑",
       quantity: ci.quantity,
