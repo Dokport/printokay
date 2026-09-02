@@ -415,6 +415,16 @@ export default function KeyringConfigurator() {
    * size has genuinely run out of room — so it is measured, not guessed from a
    * character count that can't tell "WWWW" from "iiii".
    */
+  const [fullMsg, setFullMsg] = useState("");
+
+  /**
+   * "No room for more characters" describes one combination of size, shape, font and
+   * line count. The moment the customer changes any of those — which is exactly what
+   * the message asked them to do — it is no longer true, and leaving it up reads as
+   * if the change didn't work.
+   */
+  const clearFullMsg = () => setFullMsg("");
+
   const [fontObj, setFontObj] = useState<OpenTypeFontLike | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -455,8 +465,26 @@ export default function KeyringConfigurator() {
         if (cap !== null) measured[size.id] = cap;
       }
       setCapBySize(measured);
+
+      // Reconcile in the same pass that produced the numbers. Changing font, shape
+      // or adding a line can push the chosen size out of range even though the text
+      // never grew; move up rather than leaving a size selected that can't print,
+      // and say why — the price changes with it.
+      const current = sizes.find((sz) => sz.id === sizeId);
+      if (!current || (measured[current.id] ?? Infinity) >= MIN_CAP_HEIGHT_MM) return;
+      const roomier = sizes
+        .filter((sz) => (sz.areaCm2 ?? 0) > (current.areaCm2 ?? 0))
+        .sort((a, b) => (a.areaCm2 ?? 0) - (b.areaCm2 ?? 0))
+        .find((sz) => (measured[sz.id] ?? 0) >= MIN_CAP_HEIGHT_MM);
+      if (!roomier) return;
+      setSizeId(roomier.id);
+      setFullMsg(
+        `Teksten er for lang til ${current.label.toLowerCase()} — skiftet til ${roomier.label.toLowerCase()}.`
+      );
     }, 200);
     return () => clearTimeout(timer);
+    // sizeId is read, not tracked: re-running on it would undo the switch we just made.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fullText, sizes, measureCapHeight, fontObj]);
 
   const sizeFits = (size: KeyringSizeOption): boolean => {
@@ -464,28 +492,12 @@ export default function KeyringConfigurator() {
     return cap === undefined || cap >= MIN_CAP_HEIGHT_MM;
   };
 
-  // Changing font, shape or adding a line can push the chosen size out of range even
-  // though the text never grew. Move up rather than leaving a size selected that
-  // can't print, and say why — the price changes with it.
-  useEffect(() => {
-    const current = sizes.find((s) => s.id === sizeId);
-    if (!current) return;
-    const cap = capBySize[current.id];
-    if (cap === undefined || cap >= MIN_CAP_HEIGHT_MM) return;
-    const roomier = sizes.find((s) => (capBySize[s.id] ?? 0) >= MIN_CAP_HEIGHT_MM);
-    if (!roomier) return;
-    setSizeId(roomier.id);
-    setFullMsg(`Teksten er for lang til ${current.label.toLowerCase()} — skiftet til ${roomier.label.toLowerCase()}.`);
-    // capBySize is the trigger; re-running on sizeId would fight the change we just made.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capBySize, sizes]);
 
   /**
    * Refuse a keystroke that would shrink the lettering below what prints. Only
    * growth is checked — deleting always helps, and a size the customer is already
    * on should never trap them.
    */
-  const [fullMsg, setFullMsg] = useState("");
   const acceptEdit = (next: string, previous: string, other: string): boolean => {
     if (next.length <= previous.length) { setFullMsg(""); return true; }
     const size = sizes.find((s) => s.id === sizeId);
@@ -495,7 +507,12 @@ export default function KeyringConfigurator() {
       : next;
     const cap = measureCapHeight(candidate, size);
     if (cap !== null && cap < MIN_CAP_HEIGHT_MM) {
-      const roomier = sizes.find((s) => (measureCapHeight(candidate, s) ?? 0) >= MIN_CAP_HEIGHT_MM);
+      // Only ever point UP. A smaller plate can't hold what this one can't, so
+      // searching the list in order only happens to work while it is sorted.
+      const roomier = sizes
+        .filter((s) => (s.areaCm2 ?? 0) > (size.areaCm2 ?? 0))
+        .sort((a, b) => (a.areaCm2 ?? 0) - (b.areaCm2 ?? 0))
+        .find((s) => (measureCapHeight(candidate, s) ?? 0) >= MIN_CAP_HEIGHT_MM);
       setFullMsg(
         roomier
           ? `Der er ikke plads til flere tegn på ${size.label.toLowerCase()} — vælg ${roomier.label.toLowerCase()} for mere plads.`
@@ -706,7 +723,7 @@ export default function KeyringConfigurator() {
                 </label>
                 <button
                   type="button"
-                  onClick={() => { setTwoLines(false); setText2(""); }}
+                  onClick={() => { setTwoLines(false); setText2(""); clearFullMsg(); }}
                   className="text-xs text-gray-400 hover:text-red-500 transition-colors"
                 >
                   Fjern linje
@@ -732,7 +749,7 @@ export default function KeyringConfigurator() {
           ) : (
             <button
               type="button"
-              onClick={() => setTwoLines(true)}
+              onClick={() => { setTwoLines(true); clearFullMsg(); }}
               className="mt-2 text-sm font-medium transition-opacity hover:opacity-70"
               style={{ color: primaryColor }}
             >
@@ -760,7 +777,7 @@ export default function KeyringConfigurator() {
                   type="button"
                   disabled={!fits}
                   title={fits ? undefined : "Teksten er for lang til denne størrelse"}
-                  onClick={() => setSizeId(size.id)}
+                  onClick={() => { setSizeId(size.id); clearFullMsg(); }}
                   className="flex flex-col items-center gap-0.5 p-3 rounded-xl border-2 transition-all text-center disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{
                     borderColor: isSelected ? primaryColor : "#e5e7eb",
@@ -789,7 +806,7 @@ export default function KeyringConfigurator() {
                 <button
                   key={f.id}
                   type="button"
-                  onClick={() => setFont(f.id)}
+                  onClick={() => { setFont(f.id); clearFullMsg(); }}
                   className="flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition-all"
                   style={{
                     borderColor: isSelected ? primaryColor : "#e5e7eb",
@@ -820,7 +837,7 @@ export default function KeyringConfigurator() {
                   <button
                     key={s.id}
                     type="button"
-                    onClick={() => setShapeType(s.id as "auto" | "heart" | "oval" | "round")}
+                    onClick={() => { setShapeType(s.id as "auto" | "heart" | "oval" | "round"); clearFullMsg(); }}
                     className="flex flex-col items-center gap-1 flex-1 py-2.5 px-2 rounded-xl border-2 transition-all"
                     style={{
                       borderColor: isSelected ? primaryColor : "#e5e7eb",
@@ -848,7 +865,7 @@ export default function KeyringConfigurator() {
                 <button
                   key={h.id}
                   type="button"
-                  onClick={() => setHolePosition(h.id as "top" | "side")}
+                  onClick={() => { setHolePosition(h.id as "top" | "side"); clearFullMsg(); }}
                   className="flex flex-col items-center gap-1 flex-1 py-2.5 px-2 rounded-xl border-2 transition-all"
                   style={{
                     borderColor: isSelected ? primaryColor : "#e5e7eb",
