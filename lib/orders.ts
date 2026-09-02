@@ -53,9 +53,15 @@ export type Order = {
   createdAt: string;
   stripeSessionId: string;
   status: "pending" | "printed";
-  total: number;          // øre (incl. shipping if known)
+  total: number;          // øre (incl. shipping if known, minus any promo discount)
   items: OrderItem[];
   customer?: OrderCustomer;
+  /**
+   * Set when a promo code paid for part of this order. Line items keep their full
+   * price — the discount lives here, so the order still records what was actually
+   * made and what it would normally have cost.
+   */
+  promo?: { code: string; discount: number };
 };
 
 // Back-compat alias — older imports referenced KeyringOrder.

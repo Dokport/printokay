@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Product, formatPrice, formatPrintTime, MATERIALS } from "@/lib/products";
 import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_THEMES } from "@/lib/settings";
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS, capHeightOf } from "@/lib/keyring";
@@ -33,11 +33,45 @@ function authedFetch(url: string, opts: RequestInit = {}) {
   });
 }
 
+type PromoRow = {
+  code: string;
+  createdAt: string;
+  status: "active" | "reserved" | "redeemed" | "expired";
+  note?: string;
+  sentTo?: string;
+  sentAt?: string;
+  expiresAt?: string;
+  redeemedAt?: string;
+  redeemedOrderId?: string;
+  redeemedEmail?: string;
+};
+
+const PROMO_STATUS: Record<PromoRow["status"], { label: string; className: string }> = {
+  active:   { label: "Klar",     className: "bg-green-100 text-green-700" },
+  reserved: { label: "I brug",   className: "bg-amber-100 text-amber-700" },
+  redeemed: { label: "Brugt",    className: "bg-gray-200 text-gray-600" },
+  expired:  { label: "Udløbet",  className: "bg-red-100 text-red-600" },
+};
+
+function prettyCode(code: string): string {
+  return code.replace(/(.{4})/g, "$1-").replace(/-$/, "");
+}
+
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
-  const [tab, setTab] = useState<"produkter" | "lager" | "bestillinger" | "indstillinger">("produkter");
+  const [tab, setTab] = useState<"produkter" | "lager" | "bestillinger" | "promokoder" | "indstillinger">("produkter");
+
+  // ── Promokoder ──
+  const [promos, setPromos] = useState<PromoRow[]>([]);
+  const [promoEmails, setPromoEmails] = useState("");
+  const [promoNote, setPromoNote] = useState("");
+  const [promoExpiry, setPromoExpiry] = useState("");
+  const [promoCount, setPromoCount] = useState(1);
+  const [promoBusy, setPromoBusy] = useState(false);
+  const [promoMsg, setPromoMsg] = useState("");
+  const [copiedCode, setCopiedCode] = useState("");
 
   // Orders state
   const [orders, setOrders] = useState<Order[]>([]);
@@ -127,6 +161,78 @@ export default function AdminPage() {
       .then((d) => { if (Array.isArray(d)) setOrders(d); })
       .finally(() => setOrdersLoading(false));
   }, [loggedIn, tab]);
+
+  const loadPromos = useCallback(() => {
+    authedFetch("/api/promos")
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d)) setPromos(d); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!loggedIn || tab !== "promokoder") return;
+    loadPromos();
+  }, [loggedIn, tab, loadPromos]);
+
+  async function handleCreatePromos(e: React.FormEvent) {
+    e.preventDefault();
+    if (promoBusy) return;
+    setPromoBusy(true);
+    setPromoMsg("");
+    // One address per line or comma-separated — whichever the admin pasted.
+    const emails = promoEmails.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
+    try {
+      const res = await authedFetch("/api/promos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emails,
+          count: promoCount,
+          note: promoNote,
+          expiresAt: promoExpiry || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Ukendt fejl");
+
+      const made = data.created?.length ?? 0;
+      const parts = [`${made} kode${made === 1 ? "" : "r"} oprettet`];
+      if (data.sent?.length) parts.push(`${data.sent.length} mail sendt`);
+      if (data.failed?.length) {
+        parts.push(`${data.failed.length} mail fejlede (${data.failed.map((f: { email: string }) => f.email).join(", ")}) — koderne virker stadig, send dem manuelt`);
+      }
+      setPromoMsg(parts.join(" · "));
+      setPromoEmails("");
+      setPromoNote("");
+      setPromoCount(1);
+      loadPromos();
+    } catch (err) {
+      setPromoMsg(`Fejl: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setPromoBusy(false);
+    }
+  }
+
+  async function handleDeletePromo(code: string) {
+    if (!confirm(`Slet promokoden ${prettyCode(code)}?`)) return;
+    const res = await authedFetch(`/api/promos?code=${encodeURIComponent(code)}`, { method: "DELETE" });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      alert(d.error || "Kunne ikke slette koden.");
+      return;
+    }
+    loadPromos();
+  }
+
+  async function copyCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(prettyCode(code));
+      setCopiedCode(code);
+      setTimeout(() => setCopiedCode(""), 1600);
+    } catch {
+      alert(prettyCode(code));
+    }
+  }
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -499,10 +605,10 @@ export default function AdminPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
-        {(["produkter", "lager", "bestillinger", "indstillinger"] as const).map((t) => (
+        {(["produkter", "lager", "bestillinger", "promokoder", "indstillinger"] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-5 py-2 rounded-lg font-medium text-sm transition-all ${tab === t ? "bg-white shadow text-gray-800" : "text-gray-500 hover:text-gray-700"}`}>
-            {t === "produkter" ? "📦 Produkter" : t === "lager" ? "🧵 Lager" : t === "bestillinger" ? "📬 Bestillinger" : "🎨 Udseende"}
+            {t === "produkter" ? "📦 Produkter" : t === "lager" ? "🧵 Lager" : t === "bestillinger" ? "📬 Bestillinger" : t === "promokoder" ? "🎟️ Promokoder" : "🎨 Udseende"}
           </button>
         ))}
       </div>
@@ -1415,6 +1521,150 @@ export default function AdminPage() {
               {settingsSaving ? "Gemmer..." : "Gem nøglering-priser"}
             </button>
             {settingsMsg && <span className="ml-3 text-green-600 font-medium text-sm">{settingsMsg}</span>}
+          </div>
+        </div>
+      )}
+
+      {/* ── PROMO CODES TAB ── */}
+      {tab === "promokoder" && (
+        <div className="flex flex-col gap-6">
+
+          {/* Create */}
+          <form onSubmit={handleCreatePromos} className="bg-white rounded-2xl p-6 shadow-sm flex flex-col gap-4">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800">Ny promokode</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Hver kode giver én gratis nøglering, kan bruges én gang, og dør ved indløsning.
+                Fragt betales som normalt — vælger kunden afhentning, er der intet at betale.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-gray-700 mb-1.5 block">
+                Send til (én mail pr. linje) — valgfrit
+              </label>
+              <textarea
+                value={promoEmails}
+                onChange={(e) => setPromoEmails(e.target.value)}
+                rows={3}
+                placeholder={"mette@example.dk\njens@example.dk"}
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Udfyldes feltet, laves én kode pr. adresse og mailen sendes automatisk.
+                Lad det stå tomt for blot at generere koder, du selv deler ud.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Antal koder</label>
+                <input
+                  type="number" min={1} max={50}
+                  value={promoCount}
+                  onChange={(e) => setPromoCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                  disabled={promoEmails.trim().length > 0}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm disabled:bg-gray-50 disabled:text-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+                {promoEmails.trim().length > 0 && (
+                  <p className="text-xs text-gray-400 mt-1">Styres af antal mailadresser</p>
+                )}
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Udløber — valgfrit</label>
+                <input
+                  type="date"
+                  value={promoExpiry}
+                  onChange={(e) => setPromoExpiry(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-1.5 block">Note til dig selv</label>
+                <input
+                  value={promoNote}
+                  onChange={(e) => setPromoNote(e.target.value)}
+                  placeholder="fx reklamation"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                type="submit"
+                disabled={promoBusy}
+                className="px-6 py-2.5 rounded-xl bg-purple-600 text-white font-semibold text-sm disabled:opacity-50 hover:bg-purple-700 transition-colors"
+              >
+                {promoBusy
+                  ? "Arbejder…"
+                  : promoEmails.trim()
+                    ? "Opret og send"
+                    : "Opret koder"}
+              </button>
+              {promoMsg && (
+                <span className={`text-sm font-medium ${promoMsg.startsWith("Fejl") ? "text-red-600" : "text-green-600"}`}>
+                  {promoMsg}
+                </span>
+              )}
+            </div>
+          </form>
+
+          {/* List */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm">
+            <div className="flex items-baseline justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-800">Koder</h2>
+              <span className="text-sm text-gray-400">
+                {promos.filter((p) => p.status === "active").length} klar · {promos.length} i alt
+              </span>
+            </div>
+
+            {promos.length === 0 ? (
+              <p className="text-sm text-gray-400 py-8 text-center">Ingen promokoder endnu.</p>
+            ) : (
+              <div className="flex flex-col divide-y divide-gray-100">
+                {promos.map((p) => {
+                  const badge = PROMO_STATUS[p.status];
+                  return (
+                    <div key={p.code} className="py-3 flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={() => copyCode(p.code)}
+                        title="Kopiér koden"
+                        className="font-mono text-sm font-bold tracking-wider text-gray-800 hover:text-purple-700 transition-colors"
+                      >
+                        {prettyCode(p.code)}
+                        <span className="ml-2 text-xs font-sans font-normal text-gray-400">
+                          {copiedCode === p.code ? "kopieret!" : "kopiér"}
+                        </span>
+                      </button>
+
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${badge.className}`}>
+                        {badge.label}
+                      </span>
+
+                      <span className="text-xs text-gray-400 flex-1 min-w-0 truncate">
+                        {p.status === "redeemed"
+                          ? `Brugt ${new Date(p.redeemedAt!).toLocaleDateString("da-DK")}${p.redeemedEmail ? ` af ${p.redeemedEmail}` : ""}${p.redeemedOrderId ? ` · ${p.redeemedOrderId}` : ""}`
+                          : [
+                              p.sentTo ? `Sendt til ${p.sentTo}` : null,
+                              p.note || null,
+                              p.expiresAt ? `Udløber ${new Date(p.expiresAt).toLocaleDateString("da-DK")}` : null,
+                            ].filter(Boolean).join(" · ") || `Oprettet ${new Date(p.createdAt).toLocaleDateString("da-DK")}`}
+                      </span>
+
+                      {p.status !== "redeemed" && (
+                        <button
+                          onClick={() => handleDeletePromo(p.code)}
+                          className="text-xs text-gray-400 hover:text-red-500 transition-colors shrink-0"
+                        >
+                          Slet
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -30,8 +30,14 @@ import {
 } from "./orders";
 import { generateKeyringStl } from "./stl";
 import { sendOrderConfirmation } from "./email";
+import { redeemPromo } from "./promos";
 
-export type PendingCart = { items: CartItem[]; createdAt: string };
+export type PendingCart = {
+  items: CartItem[];
+  createdAt: string;
+  /** Promo code reserved for this checkout, redeemed when the order is created. */
+  promo?: { code: string; discount: number };
+};
 
 export function pendingCartKey(sessionId: string): string {
   return `pending/${sessionId}.json`;
@@ -156,7 +162,12 @@ export async function finalizeOrder(sessionId: string): Promise<Order | null> {
   } catch {
     return null;
   }
-  if (session.payment_status !== "paid") return null;
+  // A fully discounted order (free keyring + free pickup) settles at 0 kr, and
+  // Stripe marks those "no_payment_required" rather than "paid" — treating that as
+  // unpaid would silently drop the order.
+  if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") {
+    return null;
+  }
 
   const cart = await readJsonFile<PendingCart | null>(pendingCartKey(sessionId), null);
   if (!cart || !Array.isArray(cart.items) || cart.items.length === 0) return null;
@@ -180,9 +191,20 @@ export async function finalizeOrder(sessionId: string): Promise<Order | null> {
     total: session.amount_total ?? computedTotal,
     items,
     customer: extractCustomer(session),
+    ...(cart.promo ? { promo: cart.promo } : {}),
   };
 
   const saved = await addOrder(order);
+
+  // Burn the code only now, once the order really exists. redeemPromo is
+  // idempotent, and the `existing` guard above means we get here once per order.
+  if (cart.promo) {
+    try {
+      await redeemPromo(cart.promo.code, saved.id, saved.customer?.email);
+    } catch (err) {
+      console.error(`Kunne ikke indløse promokode ${cart.promo.code} for ${saved.id}:`, err);
+    }
+  }
   // Clean up the stashed cart (best-effort).
   await deleteFile(pendingCartKey(sessionId));
 

@@ -23,3 +23,6 @@ tsconfig.tsbuildinfo
 
 # Vercel
 .vercel
+
+# Promokoder er reelt ihændehaverbeviser på et gratis produkt — aldrig i git.
+data/promos.json

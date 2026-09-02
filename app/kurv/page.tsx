@@ -5,13 +5,37 @@ import { formatPrice } from "@/lib/products";
 import { getCartTotal, getItemPrice } from "@/lib/cart";
 import { ShippingOption } from "@/lib/settings";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function KurvPage() {
   const { items, removeItem, updateQuantity, clearCart } = useCart();
   const [loading, setLoading] = useState(false);
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
   const [selectedShipping, setSelectedShipping] = useState<string>("");
+  const [promoInput, setPromoInput] = useState("");
+  const [promo, setPromo] = useState<{ code: string; discount: number } | null>(null);
+  const [promoError, setPromoError] = useState("");
+  const [promoBusy, setPromoBusy] = useState(false);
+
+  /**
+   * Stable id for this browser. A promo code is held by whoever is checking out
+   * with it; tying that to the browser rather than to a Stripe session means
+   * backing out of payment and trying again re-acquires your OWN hold instead of
+   * locking you out of your own code for an hour.
+   */
+  const holderId = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      let id = localStorage.getItem("po_holder");
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem("po_holder", id);
+      }
+      return id;
+    } catch {
+      return "";
+    }
+  }, []);
   const subtotal = getCartTotal(items);
 
   useEffect(() => {
@@ -27,7 +51,58 @@ export default function KurvPage() {
 
   const selectedOption = shippingOptions.find((s) => s.id === selectedShipping);
   const shippingPrice = selectedOption?.price ?? 0;
-  const total = subtotal + shippingPrice;
+  const total = Math.max(0, subtotal - (promo?.discount ?? 0)) + shippingPrice;
+
+  /**
+   * Re-check the applied code whenever the cart changes: the discount is tied to
+   * a specific keyring, so removing it must drop the code rather than silently
+   * carry a discount into checkout that the server will reject.
+   */
+  useEffect(() => {
+    if (!promo) return;
+    let cancelled = false;
+    fetch("/api/promos/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: promo.code, items, holderId }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (d.ok) setPromo({ code: d.code, discount: d.discount });
+        else { setPromo(null); setPromoError(d.error); }
+      })
+      .catch(() => { /* keep what we have; checkout re-checks anyway */ });
+    return () => { cancelled = true; };
+    // Only the cart contents matter here — re-running on `promo` would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
+  async function applyPromo() {
+    const code = promoInput.trim();
+    if (!code || promoBusy) return;
+    setPromoBusy(true);
+    setPromoError("");
+    try {
+      const res = await fetch("/api/promos/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, items, holderId }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setPromo({ code: data.code, discount: data.discount });
+        setPromoInput("");
+      } else {
+        setPromo(null);
+        setPromoError(data.error || "Ugyldig promokode.");
+      }
+    } catch {
+      setPromoError("Kunne ikke tjekke koden. Prøv igen.");
+    } finally {
+      setPromoBusy(false);
+    }
+  }
 
   async function handleCheckout() {
     if (!selectedShipping) return;
@@ -36,11 +111,20 @@ export default function KurvPage() {
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items, shippingOptionId: selectedShipping }),
+        body: JSON.stringify({
+          items,
+          shippingOptionId: selectedShipping,
+          holderId,
+          ...(promo ? { promoCode: promo.code } : {}),
+        }),
       });
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
+      } else if (data.error) {
+        // Most likely the promo code: it may have been used since it was applied.
+        setPromo(null);
+        setPromoError(data.error);
       } else {
         alert("Noget gik galt. Prøv igen.");
       }
@@ -158,11 +242,64 @@ export default function KurvPage() {
       )}
 
       <div className="bg-white rounded-2xl p-6 shadow-sm">
+        {/* Promo code */}
+        <div className="mb-5 pb-5 border-b border-gray-100">
+          {promo ? (
+            <div className="flex items-center justify-between gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-green-700">Promokode anvendt</p>
+                <p className="text-xs text-green-600 truncate">{promo.code} — gratis nøglering</p>
+              </div>
+              <button
+                onClick={() => { setPromo(null); setPromoError(""); }}
+                className="text-xs text-green-700 underline shrink-0 hover:text-green-900"
+              >
+                Fjern
+              </button>
+            </div>
+          ) : (
+            <>
+              <label htmlFor="promo" className="text-sm font-semibold text-gray-700 mb-2 block">
+                Har du en promokode?
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="promo"
+                  value={promoInput}
+                  onChange={(e) => { setPromoInput(e.target.value); setPromoError(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyPromo(); } }}
+                  // "uppercase" would shout a lowercase hint like "fx", so the
+                  // placeholder is the code shape alone.
+                  placeholder="PO7K-4MQX-9A"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="flex-1 min-w-0 border border-gray-200 rounded-xl px-4 py-2.5 text-sm tracking-wider uppercase focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+                <button
+                  onClick={applyPromo}
+                  disabled={!promoInput.trim() || promoBusy}
+                  className="px-5 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold shrink-0 disabled:opacity-40 transition-opacity"
+                >
+                  {promoBusy ? "Tjekker…" : "Indløs"}
+                </button>
+              </div>
+            </>
+          )}
+          {promoError && <p className="text-xs text-red-500 mt-2">{promoError}</p>}
+        </div>
+
         <div className="flex flex-col gap-2 mb-6">
           <div className="flex justify-between text-gray-600">
             <span>Varer</span>
             <span>{formatPrice(subtotal)}</span>
           </div>
+          {promo && (
+            <div className="flex justify-between text-green-600 font-medium">
+              <span>Promokode {promo.code}</span>
+              <span>−{formatPrice(promo.discount)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-gray-600">
             <span>Fragt</span>
             <span>{shippingPrice === 0 ? "Gratis" : formatPrice(shippingPrice)}</span>
@@ -174,7 +311,11 @@ export default function KurvPage() {
         </div>
         <button onClick={handleCheckout} disabled={loading || !selectedShipping}
           className="w-full bg-purple-600 text-white py-4 rounded-full font-bold text-lg hover:bg-purple-700 transition-colors disabled:opacity-60">
-          {loading ? "Sender dig til betaling..." : "Betal sikkert →"}
+          {loading
+            ? "Sender dig videre..."
+            : total === 0
+              ? "Afgiv bestilling — 0 kr →"
+              : "Betal sikkert →"}
         </button>
         <button onClick={clearCart} className="w-full mt-3 text-gray-400 hover:text-red-500 text-sm transition-colors">
           Tøm kurv
