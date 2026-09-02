@@ -154,6 +154,19 @@ export function joinTextLines(text: string, sep = " / "): string {
 /** Gap between lines, as a fraction of the em size. */
 const LINE_GAP_EM = 0.22;
 /**
+ * …and no wider than this fraction of the SHORTER of the two lines it separates.
+ *
+ * The em-based gap is a fixed number of millimetres, so a line of nothing but
+ * lowercase gets the same gap as a line of capitals while being barely half as
+ * tall — and it reads as a hole. Bebas Neue never showed this because it draws
+ * everything as capitals, so its lines are always the same height; Roboto went
+ * from 31% of the line height to 39%, Pacifico from 26% to 46%.
+ *
+ * Taken as a minimum against the em rule, so this only ever tightens spacing that
+ * has gone airy and never loosens a pair that already looks right.
+ */
+const LINE_GAP_OF_HEIGHT = 0.31;
+/**
  * …but never tighter than this once printed. Two colours meeting across a sliver
  * of base is where a 0.4mm nozzle gives up, so the gap has a floor in millimetres
  * regardless of how small the lettering gets.
@@ -206,24 +219,31 @@ export function contoursFromFont(
   const lines = splitTextLines(text);
   if (lines.length <= 1) return oneLineContours(font, lines[0] ?? "", fontSize);
 
-  const gap = Math.max(MIN_LINE_GAP_MM, fontSize * LINE_GAP_EM);
   const blocks = lines.map((line) => {
     const contours = oneLineContours(font, line, fontSize);
     const box = bboxOf(contours);
     return { contours, height: box ? box.maxY - box.minY : 0 };
   });
 
+  // One gap per pair of neighbours, each sized to the shorter of the two.
+  const gaps = blocks.slice(1).map((b, i) =>
+    Math.max(
+      MIN_LINE_GAP_MM,
+      Math.min(fontSize * LINE_GAP_EM, LINE_GAP_OF_HEIGHT * Math.min(blocks[i].height, b.height))
+    )
+  );
+
   const total =
-    blocks.reduce((sum, b) => sum + b.height, 0) + gap * (blocks.length - 1);
+    blocks.reduce((sum, b) => sum + b.height, 0) + gaps.reduce((sum, g) => sum + g, 0);
 
   // Walk down from the top of the block; each line ends up centred on its own slot,
   // so the stack as a whole is already centred on (0,0).
   let cursor = total / 2;
-  for (const b of blocks) {
+  blocks.forEach((b, i) => {
     const centre = cursor - b.height / 2;
     for (const c of b.contours) for (const p of c) p.y += centre;
-    cursor -= b.height + gap;
-  }
+    cursor -= b.height + (gaps[i] ?? 0);
+  });
 
   return blocks.flatMap((b) => b.contours);
 }
