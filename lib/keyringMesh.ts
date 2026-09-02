@@ -42,6 +42,13 @@ export const TOTAL_HEIGHT_MM   = BASE_HEIGHT_MM + TEXT_HEIGHT_MM; // 4.2mm incl.
 const HOLE_RADIUS_MM    = 2.5;  // ring attachment hole radius
 const TAB_RADIUS_MM     = HOLE_RADIUS_MM + 1.8; // solid nub around the hole (wall ≈1.8mm)
 const TAB_CLEARANCE_MM  = 1.0;  // gap between tallest letter and tab circle
+/**
+ * Narrowest the material joining two lines of text may end up, once bubbled. Set a
+ * little above the width actually wanted: the bubble's round joins shave roughly a
+ * millimetre off the bridge where it meets the gap, so asking for exactly the target
+ * lands just under it.
+ */
+const MIN_LINE_BRIDGE_MM = 10.5;
 
 // The oval's eye carries the whole tag on a split ring, and PLA splits along its
 // layer lines, so it gets a beefier version of the tab than the "auto" shape: a
@@ -589,6 +596,106 @@ function scaleContoursAboutCenter(contours: P2[][], s: number): P2[][] {
 }
 
 /**
+ * A bridge that welds two lines of text together.
+ *
+ * On the "auto" shape the plate is a bubble around each glyph, so two lines are
+ * joined only where a letter above happens to sit over a letter below. An unlucky
+ * pair — "I" over "Alexandra" — ends up bridged by a few narrow, off-centre slivers
+ * with deep notches between them: weak in 3mm PLA, and lopsided to look at.
+ *
+ * The bridge is sized from the SHORTER line, slightly narrower than it, and centred.
+ * Both lines are centred, so that is exactly the width they are guaranteed to share
+ * — wider and the bridge would poke out past the short line and flatten the
+ * silhouette; this way the notches on either side survive as shape rather than as
+ * weak points, because the bridge carries the load.
+ *
+ * `minWidthMm` is the floor. A single-character line like "I" is barely 2mm wide, and
+ * 85% of that is a bridge no print would survive, so below the floor the bridge stops
+ * following the line and just takes the width it needs.
+ *
+ * Returns null when the lines can't be told apart, in which case the caller just
+ * bubbles the glyphs as before.
+ */
+function lineBridges(
+  contours: P2[][],
+  expected: number,
+  minWidthMm: number
+): P2[][] | null {
+  if (expected <= 1 || !contours.length) return null;
+
+  let lo = Infinity, hi = -Infinity;
+  for (const c of contours) for (const p of c) {
+    if (p.y < lo) lo = p.y;
+    if (p.y > hi) hi = p.y;
+  }
+  if (!(hi > lo)) return null;
+
+  // Which horizontal slices carry glyph material.
+  const N = 400;
+  const occupied = new Array<boolean>(N).fill(false);
+  const rowOf = (y: number) =>
+    Math.min(N - 1, Math.max(0, Math.round(((y - lo) / (hi - lo)) * (N - 1))));
+  const span = (c: P2[]) => {
+    let a = Infinity, b = -Infinity;
+    for (const p of c) { if (p.y < a) a = p.y; if (p.y > b) b = p.y; }
+    return { a, b };
+  };
+  for (const c of contours) {
+    const { a, b } = span(c);
+    for (let k = rowOf(a); k <= rowOf(b); k++) occupied[k] = true;
+  }
+
+  // Split at the WIDEST empty runs, not at every one: a ring over Å or a dot over i
+  // leaves its own little gap, and treating those as line breaks would mis-count the
+  // lines. The gap between lines is always the biggest.
+  const empties: { a: number; b: number }[] = [];
+  let run: { a: number; b: number } | null = null;
+  for (let k = 0; k < N; k++) {
+    if (!occupied[k]) { if (run) run.b = k; else run = { a: k, b: k }; }
+    else if (run) { empties.push(run); run = null; }
+  }
+  if (empties.length < expected - 1) return null;
+
+  const gaps = empties
+    .sort((x, y) => (y.b - y.a) - (x.b - x.a))
+    .slice(0, expected - 1)
+    .sort((x, y) => x.a - y.a);
+
+  const yOf = (k: number) => lo + (k / (N - 1)) * (hi - lo);
+  /** Kept inside the shorter line so the bridge never widens the silhouette. */
+  const BRIDGE_WIDTH_FACTOR = 0.85;
+  /** Reach into both lines so the bridge merges with the glyphs, not just touches. */
+  const BITE_MM = 0.8;
+
+  const bridges: P2[][] = [];
+  for (const gap of gaps) {
+    const gLo = yOf(gap.a), gHi = yOf(gap.b);
+
+    // Horizontal extent of the glyphs on each side of this gap.
+    const extentOf = (below: boolean) => {
+      let x0 = Infinity, x1 = -Infinity;
+      for (const c of contours) {
+        const { a, b } = span(c);
+        if (below ? b > gLo : a < gHi) continue;
+        for (const p of c) { if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x; }
+      }
+      return x1 > x0 ? { x0, x1 } : null;
+    };
+    const under = extentOf(true);
+    const over = extentOf(false);
+    if (!under || !over) continue;
+
+    // The width the two lines share, taken from whichever is shorter.
+    const shared = Math.min(over.x1 - over.x0, under.x1 - under.x0);
+    const half = Math.max(shared * BRIDGE_WIDTH_FACTOR, minWidthMm) / 2;
+    const cx = (Math.max(over.x0, under.x0) + Math.min(over.x1, under.x1)) / 2;
+
+    bridges.push(rect(cx - half, gLo - BITE_MM, cx + half, gHi + BITE_MM));
+  }
+  return bridges.length ? bridges : null;
+}
+
+/**
  * Plate margin around the lettering. Tied to the letter size (not the plate, which has
  * no fixed size any more) so every size keeps the same visual proportions.
  */
@@ -625,8 +732,19 @@ export function buildKeyringMesh(
 
   if (config.shapeType === "auto") {
     const groups = groupByDepth(cleanUnion(rawContours));
+    // Keep the glyph-hugging silhouette, but weld the lines together across the gap
+    // so the join can never come out as a few thin, off-centre slivers.
+    // The margin fattens the bridge on both sides, so ask the bridge itself only for
+    // what the bubble won't already provide.
+    const bridges = lineBridges(
+      rawContours,
+      splitTextLines(config.text).length,
+      Math.max(0, MIN_LINE_BRIDGE_MM - 2 * autoMargin(size, config.text))
+    ) ?? [];
+    const outlines = [...groups.map((g) => g.outer), ...bridges];
+
     if (groups.length) {
-      const allPts = groups.flatMap((g) => g.outer);
+      const allPts = outlines.flat();
       const minX = Math.min(...allPts.map((p) => p.x));
       const maxX = Math.max(...allPts.map((p) => p.x));
       const minY = Math.min(...allPts.map((p) => p.y));
@@ -638,7 +756,7 @@ export function buildKeyringMesh(
       // welds it to the material on the scan line nearest the centre that actually has
       // material — so it's centred, never lands inside the lettering, and stays solidly
       // connected whatever the font's letter heights.
-      const outers = groups.map((g) => g.outer);
+      const outers = outlines;
       const OVERLAP = 3; // how far the neck reaches into the material
       const SAMPLES = 64;
       let neck: P2[];
@@ -672,7 +790,7 @@ export function buildKeyringMesh(
         neck = rect(holeCX - neckHalf, holeCY, holeCX + neckHalf, bestTop - OVERLAP);
       }
       const tab = circle(holeCX, holeCY, TAB_RADIUS_MM);
-      body = bubbleAround([...groups.map((g) => g.outer), tab, neck], marginMm)
+      body = bubbleAround([...outlines, tab, neck], marginMm)
         ?? getShapePolygon("auto", size.widthMm, size.heightMm);
     } else {
       body = getShapePolygon("auto", size.widthMm, size.heightMm);
