@@ -26,6 +26,27 @@ export type KeyringCartData = {
   price: number; // i øre — beregnet ved tilføjelse
 };
 
+/**
+ * A fidget clicker in the cart. Like the keyring, it carries everything needed to
+ * rebuild the model, so an order never depends on the browser that placed it.
+ */
+export type FidgetCartData = {
+  cols: number;
+  rows: number;
+  labels: string[];        // one per switch, row-major; "" is a blank cap
+  boxFilamentId: string;
+  boxFilamentName: string;
+  boxColorHex: string;
+  capFilamentId: string;
+  capFilamentName: string;
+  capColorHex: string;
+  textFilamentId: string;
+  textFilamentName: string;
+  textColorHex: string;
+  switchLabel: string;     // what was fitted, as it was described at the time
+  price: number;           // i øre — beregnet ved tilføjelse
+};
+
 export type CartItem = {
   product: Product;
   quantity: number;
@@ -33,11 +54,15 @@ export type CartItem = {
   colorChoices: ColorChoice[]; // one entry per color slot the customer chose
   cartKey: string; // unique per product + color combination
   keyringData?: KeyringCartData; // present only for keyring items
+  fidgetData?: FidgetCartData;   // present only for fidget items
 };
 
 export function getItemPrice(item: CartItem): number {
-  // Keyring items use the computed price, not product.price
-  return item.keyringData ? item.keyringData.price : item.product.price;
+  // Made-to-order items carry the price worked out when they were configured;
+  // a plain product has one on the product itself.
+  if (item.keyringData) return item.keyringData.price;
+  if (item.fidgetData) return item.fidgetData.price;
+  return item.product.price;
 }
 
 export function getCartTotal(items: CartItem[]): number {

@@ -17,6 +17,9 @@ import {
   calcPrice, calcFontSize, lineCapHeight, MIN_CAP_HEIGHT_MM, DEFAULT_KEYRING_SETTINGS,
 } from "./keyring";
 import type { KeyringConfig } from "./keyring";
+import {
+  calcFidgetPrice, DEFAULT_FIDGET_SETTINGS, MAX_COLS, MAX_ROWS,
+} from "./fidget";
 import { buildKeyringMesh } from "./keyringMesh";
 import { extractTextContours } from "./textpaths.server";
 import { type SiteSettings } from "./settings";
@@ -46,6 +49,17 @@ export async function loadPricing(): Promise<Pricing> {
       if (item.keyringData) {
         const size = sizes.find((s) => s.id === item.keyringData!.sizeId);
         return size ? calcPrice(size) : null;
+      }
+      if (item.fidgetData) {
+        const { cols, rows } = item.fidgetData;
+        // A grid outside what the shop sells isn't priced at all, so a hand-built
+        // request for fifty switches is refused rather than quietly costed.
+        const sane =
+          Number.isInteger(cols) && Number.isInteger(rows) &&
+          cols >= 1 && cols <= MAX_COLS && rows >= 1 && rows <= MAX_ROWS;
+        if (!sane) return null;
+        const fidget = { ...DEFAULT_FIDGET_SETTINGS, ...(settings.fidget ?? {}) };
+        return calcFidgetPrice({ cols, rows }, fidget);
       }
       const product = byId.get(item.product?.id);
       return product ? product.price : null;

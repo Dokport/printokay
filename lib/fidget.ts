@@ -29,6 +29,12 @@ export type FidgetSettings = {
   basePrice: number;         // øre — box, lid, assembly
   pricePerSwitch: number;    // øre — switch, cap, print
   switchLabel: string;       // what we fit, shown to the customer ("Klik (blå)")
+  /**
+   * Width of the cross slot in the caps, in mm. A property of the printer rather
+   * than the switch — a slot this size closes up on an FDM machine — so it is
+   * calibrated from a test print and kept here.
+   */
+  crossWidthMm: number;
 };
 
 export const DEFAULT_FIDGET_SETTINGS: FidgetSettings = {
@@ -36,6 +42,7 @@ export const DEFAULT_FIDGET_SETTINGS: FidgetSettings = {
   basePrice: 9900,
   pricePerSwitch: 2500,
   switchLabel: "Klik-switch",
+  crossWidthMm: 1.35,
 };
 
 export function switchCount(cfg: Pick<FidgetConfig, "cols" | "rows">): number {

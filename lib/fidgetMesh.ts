@@ -34,7 +34,7 @@ export const PLATE_T_MM = 1.5;   // plate thickness the switch clips grip
 export const CAP_W_MM     = 18.0;
 export const CAP_H_MM     = 8.0;
 const CAP_R_MM            = 2.0;  // corner radius
-const CAP_WALL_MM         = 1.2;
+export const CAP_WALL_MM  = 1.2;
 const CAP_TOP_T_MM        = 2.2;  // solid top, inlay included
 export const INLAY_T_MM   = 0.8;  // depth of the text inlay
 /** Where the text may go on the cap top: comfortably inside the corner radii. */
@@ -345,4 +345,44 @@ export function buildFidgetTolerancePlate(
     return { ...cap, name: `Knap ${w.toFixed(2)} mm` };
   });
   return { objects, widths };
+}
+
+/**
+ * Where each piece sits in the finished clicker, in mm, relative to the box's own
+ * centre and its floor.
+ *
+ * The 3MF lays the pieces out flat for printing; a customer wants to see the thing
+ * assembled. The caps ride on the switches: an MX switch stands about 11.6mm above
+ * the plate at rest and the cap swallows the top few of those, so the skirt lands
+ * a little under 5mm above the lid.
+ */
+const CAP_RIDE_HEIGHT_MM = 4.8;
+
+/**
+ * Where each piece sits in the finished clicker, and which way up.
+ *
+ * The caps come out of buildFidgetMesh already turned over, because that is how
+ * they print. Showing the product means turning them back: a half turn about X,
+ * the exact inverse. After it the cap occupies z −CAP_H_MM..0, so its skirt lands
+ * on `z` once the mesh is lifted by its own height.
+ */
+export type AssemblyPlacement = { x: number; y: number; z: number; rotX: number };
+
+export function assemblyPlacements(
+  cfg: Pick<FidgetConfig, "cols" | "rows">,
+  mesh: FidgetMesh
+): { box: AssemblyPlacement; lid: AssemblyPlacement; caps: AssemblyPlacement[] } {
+  const lidZ = mesh.boxMm.z - PLATE_T_MM; // the lid drops into the rim recess
+  return {
+    box: { x: 0, y: 0, z: 0, rotX: 0 },
+    lid: { x: 0, y: 0, z: lidZ, rotX: 0 },
+    caps: Array.from({ length: cfg.cols * cfg.rows }, (_, i) => {
+      const c = switchCentre(cfg, i);
+      return {
+        x: c.x, y: c.y,
+        z: mesh.boxMm.z + CAP_RIDE_HEIGHT_MM + CAP_H_MM,
+        rotX: Math.PI,
+      };
+    }),
+  };
 }

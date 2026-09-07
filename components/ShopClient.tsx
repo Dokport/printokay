@@ -7,14 +7,16 @@ import { SiteSettings } from "@/lib/settings";
 import ProductCard from "@/components/ProductCard";
 
 // Load configurator lazily — pulls in three.js, only needed when tab is active.
-const KeyringConfigurator = dynamic(
-  () => import("@/components/KeyringConfigurator"),
-  { ssr: false, loading: () => <div className="py-16 text-center text-gray-400 text-sm">Indlæser konfigurator…</div> }
+const loading = () => (
+  <div className="py-16 text-center text-gray-400 text-sm">Indlæser konfigurator…</div>
 );
+const KeyringConfigurator = dynamic(() => import("@/components/KeyringConfigurator"), { ssr: false, loading });
+const FidgetConfigurator = dynamic(() => import("@/components/FidgetConfigurator"), { ssr: false, loading });
 
 type Props = { products: Product[]; settings: SiteSettings };
 
 const KEYRING_TAB = "__noglering__";
+const FIDGET_TAB = "__fidget__";
 
 export default function ShopClient({ products, settings }: Props) {
   const [activeCategory, setActiveCategory] = useState<string>("alle");
@@ -28,9 +30,9 @@ export default function ShopClient({ products, settings }: Props) {
   // mount rather than in the initial state: the server has no location to read, and
   // disagreeing with it there breaks hydration.
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).has("noglering")) {
-      setActiveCategory(KEYRING_TAB);
-    }
+    const q = new URLSearchParams(window.location.search);
+    if (q.has("noglering")) setActiveCategory(KEYRING_TAB);
+    else if (q.has("fidget")) setActiveCategory(FIDGET_TAB);
   }, []);
 
   // Reset to shop view when header logo/Shop link is clicked while already on "/"
@@ -49,7 +51,15 @@ export default function ShopClient({ products, settings }: Props) {
       : products.filter((p) => p.category === activeCategory);
 
   const showKeyring = activeCategory === KEYRING_TAB;
+  const showFidget = activeCategory === FIDGET_TAB;
+  const showConfigurator = showKeyring || showFidget;
   const { primaryColor, accentColor } = settings;
+
+  function openFidget() {
+    setActiveCategory(FIDGET_TAB);
+    window.history.replaceState(null, "", "/?fidget");
+    requestAnimationFrame(() => configRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
 
   function openKeyring() {
     setActiveCategory(KEYRING_TAB);
@@ -71,7 +81,7 @@ export default function ShopClient({ products, settings }: Props) {
       </section>
 
       {/* ── Featured: Custom Nøglering — hidden once configurator is open ── */}
-      {!showKeyring && (
+      {!showConfigurator && (
         <button
           onClick={openKeyring}
           className="group relative w-full mb-10 overflow-hidden rounded-3xl text-left shadow-md hover:shadow-xl transition-shadow"
@@ -134,6 +144,18 @@ export default function ShopClient({ products, settings }: Props) {
         >
           Custom Nøglering
         </button>
+
+        <button
+          onClick={openFidget}
+          className="px-5 py-2 rounded-full font-medium transition-all border"
+          style={
+            showFidget
+              ? { backgroundColor: primaryColor, color: "#fff", borderColor: primaryColor }
+              : { backgroundColor: "#fff", color: primaryColor, borderColor: primaryColor }
+          }
+        >
+          Custom Fidget
+        </button>
       </div>
 
       {/* Content */}
@@ -152,6 +174,24 @@ export default function ShopClient({ products, settings }: Props) {
             </button>
           </div>
           <KeyringConfigurator />
+        </div>
+      ) : showFidget ? (
+        <div ref={configRef} className="scroll-mt-24">
+          <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 mb-1">Design din fidget clicker</h2>
+              <p className="text-gray-500">
+                Vælg antal knapper, farver og hvad der står på hver — vi printer og samler den.
+              </p>
+            </div>
+            <button
+              onClick={() => setActiveCategory("alle")}
+              className="text-sm font-medium text-gray-500 hover:text-gray-800 transition-colors"
+            >
+              ← Tilbage til shop
+            </button>
+          </div>
+          <FidgetConfigurator />
         </div>
       ) : filtered.length === 0 ? (
         <p className="text-center text-gray-400 py-12">Ingen produkter i denne kategori endnu.</p>

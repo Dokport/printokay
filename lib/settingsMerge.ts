@@ -9,6 +9,7 @@
  */
 import { DEFAULT_SETTINGS, type SiteSettings } from "./settings";
 import { DEFAULT_KEYRING_SETTINGS, type KeyringSizeOption } from "./keyring";
+import { DEFAULT_FIDGET_SETTINGS } from "./fidget";
 
 /** Fill in whatever a saved size predates, matching on id. */
 function completeSize(size: Partial<KeyringSizeOption> & { id: string }): KeyringSizeOption {
@@ -32,6 +33,7 @@ export function mergeSettings(stored: Partial<SiteSettings> | null | undefined):
   const merged = { ...DEFAULT_SETTINGS, ...(stored ?? {}) } as SiteSettings;
   const keyring = stored?.keyring;
   const sizes = keyring?.sizes?.length ? keyring.sizes : DEFAULT_KEYRING_SETTINGS.sizes;
+  merged.fidget = { ...DEFAULT_FIDGET_SETTINGS, ...(stored?.fidget ?? {}) };
   merged.keyring = {
     ...DEFAULT_KEYRING_SETTINGS,
     ...(keyring ?? {}),

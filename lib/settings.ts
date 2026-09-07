@@ -1,4 +1,5 @@
 import type { KeyringSettings, KeyringSizeOption } from "./keyring";
+import type { FidgetSettings } from "./fidget";
 export type { KeyringSettings, KeyringSizeOption };
 
 export type Category = { id: string; label: string; emoji: string };
@@ -43,6 +44,7 @@ export type SiteSettings = {
   shippingOptions: ShippingOption[];
   filaments: FilamentSpool[];
   keyring: KeyringSettings;
+  fidget: FidgetSettings;
 };
 
 export const DEFAULT_SETTINGS: SiteSettings = {
@@ -79,6 +81,13 @@ export const DEFAULT_SETTINGS: SiteSettings = {
       { id: "medium", label: "Mellem", textHeightMm: 14, widthMm: 60, heightMm: 28, areaCm2: 13.5, basePrice: 9900 },
       { id: "large",  label: "Stor",   textHeightMm: 18, widthMm: 80, heightMm: 35, areaCm2: 21.5, basePrice: 11900 },
     ],
+  },
+  fidget: {
+    enabled: true,
+    basePrice: 9900,
+    pricePerSwitch: 2500,
+    switchLabel: "Klik-switch",
+    crossWidthMm: 1.35,
   },
 };
 

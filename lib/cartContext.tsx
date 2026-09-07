@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
-import { CartItem, ColorChoice, KeyringCartData, makeCartKey } from "./cart";
+import { CartItem, ColorChoice, KeyringCartData, makeCartKey, type FidgetCartData } from "./cart";
 import { Product } from "./products";
 
 const STORAGE_KEY = "printokay-cart-v1";
@@ -10,6 +10,7 @@ type AddItemOptions = {
   note?: string;
   colorChoices?: ColorChoice[];
   keyringData?: KeyringCartData;
+  fidgetData?: FidgetCartData;
 };
 
 type CartContextType = {
@@ -59,9 +60,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   function addItem(product: Product, options?: AddItemOptions) {
     const choices = options?.colorChoices ?? [];
+    // Made-to-order items are only "the same line" when every choice matches, so
+    // the whole configuration goes into the key.
+    const fd = options?.fidgetData;
     const cartKey = options?.keyringData
       ? `keyring-${options.keyringData.text}-${options.keyringData.sizeId}-${options.keyringData.baseFilamentId}-${options.keyringData.textFilamentId}`
-      : makeCartKey(product.id, choices);
+      : fd
+        ? `fidget-${fd.cols}x${fd.rows}-${fd.labels.join("|")}-${fd.boxFilamentId}-${fd.capFilamentId}-${fd.textFilamentId}`
+        : makeCartKey(product.id, choices);
 
     setItems((prev) => {
       const existing = prev.find((i) => i.cartKey === cartKey);
@@ -79,6 +85,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           note: options?.note,
           colorChoices: choices,
           keyringData: options?.keyringData,
+          fidgetData: options?.fidgetData,
         },
       ];
     });
