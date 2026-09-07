@@ -16,7 +16,7 @@ import { formatPrice } from "@/lib/products";
 import { detectWebGL } from "@/lib/webgl";
 import {
   MAX_CAP_CHARS, MAX_COLS, MAX_ROWS,
-  calcFidgetPrice, fidgetFilaments, switchCount, validateFidget,
+  calcFidgetPrice, exampleLabel, fidgetFilaments, switchCount, validateFidget,
   DEFAULT_FIDGET_SETTINGS, type FidgetConfig, type FidgetSettings,
 } from "@/lib/fidget";
 import type { FidgetMesh } from "@/lib/fidgetMesh";
@@ -50,6 +50,11 @@ export default function FidgetConfigurator() {
   const [cols, setCols] = useState(2);
   const [rows, setRows] = useState(2);
   const [labels, setLabels] = useState<string[]>([]);
+  /**
+   * Which cap fields the customer has taken over from the examples. Needed so an
+   * emptied field stays empty instead of falling back to its example.
+   */
+  const [touched, setTouched] = useState<Set<number>>(new Set());
   // null = the customer hasn't chosen yet, so a sensible default stands in. Derived
   // rather than written into state on load: writing it would mean a second render
   // for every visitor, and would make "unchosen" indistinguishable from "chose the
@@ -108,9 +113,11 @@ export default function FidgetConfigurator() {
   const textFilamentId = textPick ?? defaults.text;
 
   const n = cols * rows;
+  // An untouched field shows its example, and the example is what gets ordered if
+  // the customer leaves it — it is a real, printable label, not a placeholder.
   const capLabels = useMemo(
-    () => Array.from({ length: n }, (_, i) => labels[i] ?? ""),
-    [labels, n]
+    () => Array.from({ length: n }, (_, i) => (touched.has(i) ? labels[i] ?? "" : exampleLabel(i))),
+    [labels, touched, n]
   );
 
   const config: FidgetConfig = useMemo(
@@ -125,7 +132,8 @@ export default function FidgetConfigurator() {
   const price = calcFidgetPrice(config, fidget);
   const canBuy = validation.ok;
 
-  const setLabel = (i: number, value: string) =>
+  const setLabel = (i: number, value: string) => {
+    setTouched((prev) => (prev.has(i) ? prev : new Set(prev).add(i)));
     setLabels((prev) => {
       const next = [...prev];
       while (next.length < n) next.push("");
@@ -134,6 +142,8 @@ export default function FidgetConfigurator() {
       next[i] = value.toLocaleUpperCase("da-DK").slice(0, MAX_CAP_CHARS);
       return next;
     });
+  };
+
 
   // The preview hands back the mesh it built; the read-out is measured, not guessed.
   const onMeasure = useCallback((m: FidgetMesh) => setMesh(m), []);
@@ -289,7 +299,10 @@ export default function FidgetConfigurator() {
         {/* Cap labels, laid out as the grid they will be printed in */}
         <div>
           <label className="text-sm font-semibold text-gray-700 mb-2 block">
-            Tekst på knapperne <span className="font-normal text-gray-400">— valgfrit, maks. {MAX_CAP_CHARS} tegn</span>
+            Tekst på knapperne{" "}
+            <span className="font-normal text-gray-400">
+              — op til {MAX_CAP_CHARS} tegn på hver. Klik i et felt for at skrive dit eget.
+            </span>
           </label>
           <div
             className="grid gap-2"
@@ -301,6 +314,13 @@ export default function FidgetConfigurator() {
                 type="text"
                 value={value}
                 onChange={(e) => setLabel(i, e.target.value)}
+                // Select rather than clear: typing replaces the example, but
+                // clicking in and back out leaves it intact — and nobody ends up
+                // typing onto the end of it. The mouseup guard is what makes it
+                // stick; without it the browser drops the caret where the click
+                // landed, straight after focus, and the selection is gone again.
+                onFocus={(e) => e.currentTarget.select()}
+                onMouseUp={(e) => e.preventDefault()}
                 maxLength={MAX_CAP_CHARS}
                 aria-label={`Knap ${i + 1}`}
                 className="w-full px-2 py-3 rounded-xl border-2 border-gray-200 bg-white text-center text-lg font-bold uppercase text-gray-800 focus:outline-none focus:ring-2"

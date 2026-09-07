@@ -14,6 +14,21 @@ export const MAX_COLS = 4;
 export const MAX_ROWS = 2;
 export const MAX_CAP_CHARS = 3;
 
+/**
+ * What the cap fields start out saying.
+ *
+ * An empty grid of little boxes does not explain itself — a customer has to guess
+ * that they are for text, and that a word of two or three letters fits. Filling
+ * them in shows both at once, and the preview then has something written on it from
+ * the first moment. Each field clears on first focus, so nobody orders the example
+ * by accident.
+ */
+export const EXAMPLE_LABELS = ["JA", "NEJ", "OK", "HEY", "GO", "NU", "TAK", "WOW"];
+
+export function exampleLabel(index: number): string {
+  return EXAMPLE_LABELS[index % EXAMPLE_LABELS.length];
+}
+
 export type FidgetConfig = {
   cols: number;              // 1..MAX_COLS
   rows: number;              // 1..MAX_ROWS
