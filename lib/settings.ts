@@ -88,6 +88,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     pricePerSwitch: 2500,
     switchLabel: "Klik-switch",
     crossWidthMm: 1.35,
+    filamentIds: [],
   },
 };
 

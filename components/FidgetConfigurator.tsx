@@ -16,7 +16,7 @@ import { formatPrice } from "@/lib/products";
 import { detectWebGL } from "@/lib/webgl";
 import {
   MAX_CAP_CHARS, MAX_COLS, MAX_ROWS,
-  calcFidgetPrice, switchCount, validateFidget,
+  calcFidgetPrice, fidgetFilaments, switchCount, validateFidget,
   DEFAULT_FIDGET_SETTINGS, type FidgetConfig, type FidgetSettings,
 } from "@/lib/fidget";
 import type { FidgetMesh } from "@/lib/fidgetMesh";
@@ -78,10 +78,11 @@ export default function FidgetConfigurator() {
   useEffect(() => { setWebglOk(detectWebGL()); }, []);
 
   const { primaryColor, fidget, filaments } = settings;
-  // PLA only, matching the keyring — filament type selection is being reworked.
+  // Only what the shop offers for this product — the plate prints in three colours
+  // at once, so the choice is what is loaded, not the whole shelf.
   const inStock = useMemo(
-    () => filaments.filter((f) => f.inStock && f.material === "PLA"),
-    [filaments]
+    () => fidgetFilaments(fidget, filaments),
+    [fidget, filaments]
   );
 
   // Sensible starting colours once stock is known: a dark box, a light cap, and a
@@ -120,7 +121,7 @@ export default function FidgetConfigurator() {
   const colourOf = (id: string) => inStock.find((f) => f.id === id)?.colorHex ?? "#cccccc";
   const nameOf = (id: string) => inStock.find((f) => f.id === id)?.name ?? "";
 
-  const validation = validateFidget(config, filaments);
+  const validation = validateFidget(config, filaments, fidget);
   const price = calcFidgetPrice(config, fidget);
   const canBuy = validation.ok;
 
@@ -128,7 +129,9 @@ export default function FidgetConfigurator() {
     setLabels((prev) => {
       const next = [...prev];
       while (next.length < n) next.push("");
-      next[i] = value.slice(0, MAX_CAP_CHARS);
+      // Upper-cased here so what is stored matches what is shown; the CSS
+      // transform alone would send a lower-case letter to the printer.
+      next[i] = value.toLocaleUpperCase("da-DK").slice(0, MAX_CAP_CHARS);
       return next;
     });
 

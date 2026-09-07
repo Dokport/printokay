@@ -30,6 +30,15 @@ export type FidgetSettings = {
   pricePerSwitch: number;    // øre — switch, cap, print
   switchLabel: string;       // what we fit, shown to the customer ("Klik (blå)")
   /**
+   * Which filaments this product is offered in, by id.
+   *
+   * Not simply everything in stock: the plate prints in three colours at once, so
+   * what can be chosen is what is loaded in the AMS — a shop decision, not a
+   * stock-wide one. Empty falls back to whatever is in stock, so the product still
+   * works before anyone has picked.
+   */
+  filamentIds: string[];
+  /**
    * Width of the cross slot in the caps, in mm. A property of the printer rather
    * than the switch — a slot this size closes up on an FDM machine — so it is
    * calibrated from a test print and kept here.
@@ -43,6 +52,7 @@ export const DEFAULT_FIDGET_SETTINGS: FidgetSettings = {
   pricePerSwitch: 2500,
   switchLabel: "Klik-switch",
   crossWidthMm: 1.35,
+  filamentIds: [],
 };
 
 export function switchCount(cfg: Pick<FidgetConfig, "cols" | "rows">): number {
@@ -53,19 +63,38 @@ export function calcFidgetPrice(cfg: Pick<FidgetConfig, "cols" | "rows">, s: Fid
   return s.basePrice + switchCount(cfg) * s.pricePerSwitch;
 }
 
-/** Labels padded/truncated to the grid, each trimmed to the cap's character limit. */
+/**
+ * Labels padded/truncated to the grid, upper-cased, each trimmed to the cap's
+ * character limit.
+ *
+ * Upper-casing here rather than in the input's CSS: `text-transform` only changes
+ * what the field looks like, so a lower-case letter reached the cap and the printed
+ * key did not match what the customer had been shown.
+ */
 export function normalizeLabels(cfg: FidgetConfig): string[] {
   const n = switchCount(cfg);
   return Array.from({ length: n }, (_, i) =>
-    (splitTextLines(cfg.labels[i] ?? "")[0] ?? "").slice(0, MAX_CAP_CHARS)
+    (splitTextLines(cfg.labels[i] ?? "")[0] ?? "").toLocaleUpperCase("da-DK").slice(0, MAX_CAP_CHARS)
   );
 }
 
 export type FidgetValidation = { ok: boolean; error?: string };
 
+/** The filaments this product may be ordered in, in stock order. */
+export function fidgetFilaments(
+  settings: Pick<FidgetSettings, "filamentIds">,
+  filaments: FilamentSpool[]
+): FilamentSpool[] {
+  const inStock = filaments.filter((f) => f.inStock && f.material === "PLA");
+  const chosen = settings.filamentIds ?? [];
+  if (!chosen.length) return inStock;
+  return inStock.filter((f) => chosen.includes(f.id));
+}
+
 export function validateFidget(
   cfg: FidgetConfig,
-  filaments: FilamentSpool[]
+  filaments: FilamentSpool[],
+  settings: Pick<FidgetSettings, "filamentIds"> = { filamentIds: [] }
 ): FidgetValidation {
   if (!Number.isInteger(cfg.cols) || cfg.cols < 1 || cfg.cols > MAX_COLS) {
     return { ok: false, error: `Vælg 1–${MAX_COLS} kolonner` };
@@ -77,12 +106,12 @@ export function validateFidget(
   if (tooLong !== undefined) {
     return { ok: false, error: `Maks. ${MAX_CAP_CHARS} tegn pr. knap` };
   }
-  const inStock = new Set(filaments.filter((f) => f.inStock).map((f) => f.id));
+  const offered = new Set(fidgetFilaments(settings, filaments).map((f) => f.id));
   for (const [id, what] of [
     [cfg.boxFilamentId, "kasse"], [cfg.capFilamentId, "knapper"], [cfg.textFilamentId, "tekst"],
   ] as const) {
     if (!id) return { ok: false, error: `Vælg en farve til ${what}` };
-    if (!inStock.has(id)) return { ok: false, error: `Farven til ${what} er ikke på lager` };
+    if (!offered.has(id)) return { ok: false, error: `Farven til ${what} kan ikke vælges` };
   }
   if (cfg.capFilamentId === cfg.textFilamentId) {
     return { ok: false, error: "Tekst og knap skal have hver sin farve" };

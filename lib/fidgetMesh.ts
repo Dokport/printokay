@@ -69,6 +69,22 @@ const CAVITY_H_MM      = 12.0; // switch body 8.3 + pins, below the plate
 const CAVITY_MARGIN_MM = 1.0;  // cavity beyond the outermost switch pitch cell
 const RIM_STEP_MM      = 1.0;  // the lid sits in a recess this deep into the wall
 const LID_CLEARANCE_MM = 0.15;
+/**
+ * How far a cap's skirt sits above the plate once it is on a switch. A Cherry MX
+ * stands about 11.6mm proud of the plate and the cap swallows the top of that.
+ */
+export const CAP_RIDE_HEIGHT_MM = 6.2;
+/**
+ * The lid carries a frame around the caps, tall enough to hide the lower half of
+ * them. Without it the caps appear to float: the switch itself is a bought part and
+ * is not in the model, so the gap it fills reads as a mistake.
+ *
+ * The frame is on the LID, not the box. On the box it would trap the lid — a lid
+ * cannot drop into a well that is walled above it.
+ */
+const BEZEL_HIDES_MM = CAP_H_MM / 2;
+/** Gap between the frame and the caps, so a pressed cap never rubs. */
+const BEZEL_CLEARANCE_MM = 0.7;
 
 const SCALE = 1000;
 type IPt = { X: number; Y: number };
@@ -226,18 +242,41 @@ function bbox(contours: P2[][]) {
  * the contours and the letter height actually achieved (cap height of the font,
  * which for Roboto Bold is 0.711 of the em).
  */
-function capInlay(glyphs: GlyphSource, label: string): { region: P2[][]; capHeightMm: number } | null {
-  const text = label.trim().slice(0, MAX_CAP_CHARS);
-  if (!text) return null;
+/**
+ * The text for every cap, at ONE size.
+ *
+ * Fitting each cap to its own box would make "A" tower over "MMM" on the same
+ * clicker. The scale is set by whichever label needs the most shrinking, and every
+ * cap then gets that — so the lettering matches across the product no matter how
+ * many characters each key carries.
+ */
+function capInlays(
+  glyphs: GlyphSource,
+  labels: string[]
+): { inlays: (P2[][] | null)[]; capHeightMm: number | null } {
   const em = 10;
-  const raw = glyphs(text, em);
-  if (!raw.length) return null;
-  const b = bbox(raw);
-  if (!(b.w > 0) || !(b.h > 0)) return null;
-  const s = Math.min(TEXT_BOX_W_MM / b.w, TEXT_BOX_H_MM / b.h);
-  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-  const region = raw.map((c) => c.map((p) => ({ x: (p.x - cx) * s, y: (p.y - cy) * s })));
-  return { region: cleanUnion(region), capHeightMm: em * 0.711 * s };
+  const drawn = labels.map((label) => {
+    const text = label.trim().slice(0, MAX_CAP_CHARS);
+    if (!text) return null;
+    const raw = glyphs(text, em);
+    if (!raw.length) return null;
+    const b = bbox(raw);
+    return b.w > 0 && b.h > 0 ? { raw, b } : null;
+  });
+
+  let scale = Infinity;
+  for (const d of drawn) {
+    if (!d) continue;
+    scale = Math.min(scale, TEXT_BOX_W_MM / d.b.w, TEXT_BOX_H_MM / d.b.h);
+  }
+  if (!Number.isFinite(scale)) return { inlays: labels.map(() => null), capHeightMm: null };
+
+  const inlays = drawn.map((d) => {
+    if (!d) return null;
+    const cx = (d.b.x0 + d.b.x1) / 2, cy = (d.b.y0 + d.b.y1) / 2;
+    return cleanUnion(d.raw.map((c) => c.map((p) => ({ x: (p.x - cx) * scale, y: (p.y - cy) * scale }))));
+  });
+  return { inlays, capHeightMm: em * 0.711 * scale };
 }
 
 export function buildFidgetMesh(
@@ -275,11 +314,20 @@ export function buildFidgetMesh(
     const c = switchCentre(cfg, i);
     cutouts.push(rect(c.x - CUTOUT_MM / 2, c.y - CUTOUT_MM / 2, c.x + CUTOUT_MM / 2, c.y + CUTOUT_MM / 2));
   }
-  const lidTris = layeredPrism([{ z0: 0, z1: PLATE_T_MM, region: clip(lid, cutouts, "difference") }]);
+  // The frame stands around the whole cap field; it cannot pass between caps, which
+  // sit only about a millimetre apart.
+  const fieldW = (cfg.cols - 1) * PITCH_MM + CAP_W_MM + 2 * BEZEL_CLEARANCE_MM;
+  const fieldH = (cfg.rows - 1) * PITCH_MM + CAP_W_MM + 2 * BEZEL_CLEARANCE_MM;
+  const capWell = [roundedRect(0, 0, fieldW, fieldH, CAP_R_MM + BEZEL_CLEARANCE_MM)];
+  const bezelTop = PLATE_T_MM + CAP_RIDE_HEIGHT_MM + BEZEL_HIDES_MM;
+  const lidTris = layeredPrism([
+    { z0: 0,           z1: PLATE_T_MM, region: clip(lid, cutouts, "difference") },
+    { z0: PLATE_T_MM,  z1: bezelTop,   region: clip(lid, capWell, "difference") },
+  ]);
 
   const objects: FidgetObject[] = [
     { name: "Kasse", parts: [{ name: "Kasse", role: "box", tris: box }], size: { w: boxW, h: boxH, z: boxZ } },
-    { name: "Låg",   parts: [{ name: "Låg",   role: "box", tris: lidTris }], size: { w: lidW, h: lidH, z: PLATE_T_MM } },
+    { name: "Låg",   parts: [{ name: "Låg",   role: "box", tris: lidTris }], size: { w: lidW, h: lidH, z: bezelTop } },
   ];
 
   // ── Caps ──
@@ -290,11 +338,12 @@ export function buildFidgetMesh(
   const zCeiling = CAP_H_MM - CAP_TOP_T_MM;
   const zInlay = CAP_H_MM - INLAY_T_MM;
 
+  const { inlays, capHeightMm } = capInlays(glyphs, labels);
   const capHeightsMm: (number | null)[] = [];
   for (let i = 0; i < n; i++) {
-    const inlay = capInlay(glyphs, labels[i]);
-    capHeightsMm.push(inlay?.capHeightMm ?? null);
-    const topRegion = inlay ? clip(capOuter, inlay.region, "difference") : capOuter;
+    const inlay = inlays[i];
+    capHeightsMm.push(inlay ? capHeightMm : null);
+    const topRegion = inlay ? clip(capOuter, inlay, "difference") : capOuter;
 
     const body = layeredPrism([
       { z0: 0,                          z1: zCeiling - STEM_DEPTH_MM, region: skirt },
@@ -304,7 +353,7 @@ export function buildFidgetMesh(
     ]);
     const parts: FidgetPart[] = [{ name: `Knap ${i + 1}`, role: "cap", tris: upsideDown(body, CAP_H_MM) }];
     if (inlay) {
-      const text = layeredPrism([{ z0: zInlay, z1: CAP_H_MM, region: inlay.region }]);
+      const text = layeredPrism([{ z0: zInlay, z1: CAP_H_MM, region: inlay }]);
       parts.push({ name: `Tekst ${i + 1}`, role: "text", tris: upsideDown(text, CAP_H_MM) });
     }
     objects.push({
@@ -347,16 +396,6 @@ export function buildFidgetTolerancePlate(
   return { objects, widths };
 }
 
-/**
- * Where each piece sits in the finished clicker, in mm, relative to the box's own
- * centre and its floor.
- *
- * The 3MF lays the pieces out flat for printing; a customer wants to see the thing
- * assembled. The caps ride on the switches: an MX switch stands about 11.6mm above
- * the plate at rest and the cap swallows the top few of those, so the skirt lands
- * a little under 5mm above the lid.
- */
-const CAP_RIDE_HEIGHT_MM = 4.8;
 
 /**
  * Where each piece sits in the finished clicker, and which way up.

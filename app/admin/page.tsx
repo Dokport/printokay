@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Product, formatPrice, formatPrintTime, MATERIALS } from "@/lib/products";
 import { SiteSettings, ShippingOption, FilamentSpool, DEFAULT_SETTINGS, COLOR_THEMES } from "@/lib/settings";
 import { DEFAULT_KEYRING_SETTINGS, KEYRING_FONTS, KEYRING_SHAPES, KEYRING_HOLE_POSITIONS, capHeightOf } from "@/lib/keyring";
+import { DEFAULT_FIDGET_SETTINGS } from "@/lib/fidget";
 import type { Order } from "@/lib/orders";
 import type { ColorZone, Printer, PrintRequest } from "@/lib/products";
 import { parseThreeMf, parseThreeMfMeta, parseSlicedStats } from "@/lib/threemf";
@@ -1538,6 +1539,146 @@ export default function AdminPage() {
               {settingsSaving ? "Gemmer..." : "Gem nøglering-priser"}
             </button>
             {settingsMsg && <span className="ml-3 text-green-600 font-medium text-sm">{settingsMsg}</span>}
+          </div>
+
+          {/* Fidget clicker */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm">
+            <h2 className="font-semibold text-gray-800 mb-4">🎛️ Fidget clicker</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Prisen er en grundpris for kasse, låg og samling, plus et beløb pr.
+              switch. Farverne er dem der kan bestilles i — pladen printes i tre
+              farver ad gangen, så det er dem der er i AMS&apos;en, ikke hele lageret.
+            </p>
+
+            <div className="flex flex-wrap gap-4 mb-5">
+              {([
+                ["basePrice", "Grundpris (kr)", 1, 100],
+                ["pricePerSwitch", "Pr. switch (kr)", 1, 100],
+              ] as const).map(([field, label, step, factor]) => (
+                <div key={field} className="flex items-center gap-2">
+                  <label className="text-xs text-gray-600">{label}:</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step={step}
+                    value={((settings.fidget?.[field] ?? DEFAULT_FIDGET_SETTINGS[field]) / factor).toFixed(0)}
+                    onChange={(e) =>
+                      setSettings((st) => ({
+                        ...st,
+                        fidget: {
+                          ...(st.fidget ?? DEFAULT_FIDGET_SETTINGS),
+                          [field]: Math.round(parseFloat(e.target.value) * factor) || 0,
+                        },
+                      }))
+                    }
+                    className="w-24 border border-gray-200 rounded-xl px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 text-right"
+                  />
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-600">Slotbredde (mm):</label>
+                <input
+                  type="number"
+                  min="0.8"
+                  max="2"
+                  step="0.05"
+                  value={settings.fidget?.crossWidthMm ?? DEFAULT_FIDGET_SETTINGS.crossWidthMm}
+                  onChange={(e) =>
+                    setSettings((st) => ({
+                      ...st,
+                      fidget: { ...(st.fidget ?? DEFAULT_FIDGET_SETTINGS), crossWidthMm: parseFloat(e.target.value) || 0 },
+                    }))
+                  }
+                  className="w-24 border border-gray-200 rounded-xl px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 text-right"
+                />
+              </div>
+              <div className="flex items-center gap-2 flex-1 min-w-[14rem]">
+                <label className="text-xs text-gray-600 shrink-0">Switch:</label>
+                <input
+                  value={settings.fidget?.switchLabel ?? DEFAULT_FIDGET_SETTINGS.switchLabel}
+                  onChange={(e) =>
+                    setSettings((st) => ({
+                      ...st,
+                      fidget: { ...(st.fidget ?? DEFAULT_FIDGET_SETTINGS), switchLabel: e.target.value },
+                    }))
+                  }
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600 font-medium mb-2">
+              Farver der kan bestilles i {settings.fidget?.filamentIds?.length
+                ? `(${settings.fidget.filamentIds.length} valgt)`
+                : "— ingen valgt, så hele lageret tilbydes"}
+            </p>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {(settings.filaments ?? []).filter((f) => f.inStock && f.material === "PLA").map((f) => {
+                const on = (settings.fidget?.filamentIds ?? []).includes(f.id);
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    title={f.name}
+                    onClick={() =>
+                      setSettings((st) => {
+                        const cur = st.fidget?.filamentIds ?? [];
+                        return {
+                          ...st,
+                          fidget: {
+                            ...(st.fidget ?? DEFAULT_FIDGET_SETTINGS),
+                            filamentIds: on ? cur.filter((id) => id !== f.id) : [...cur, f.id],
+                          },
+                        };
+                      })
+                    }
+                    className="flex items-center gap-2 rounded-full border-2 pl-1.5 pr-3 py-1 text-xs font-medium transition-all"
+                    style={{
+                      borderColor: on ? "#7c3aed" : "#e5e7eb",
+                      backgroundColor: on ? "#f5f3ff" : "white",
+                      color: on ? "#5b21b6" : "#6b7280",
+                    }}
+                  >
+                    <span className="w-5 h-5 rounded-full border border-black/10" style={{ backgroundColor: f.colorHex }} />
+                    {f.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="rounded-xl bg-gray-50 p-3 mb-4">
+              <p className="text-xs text-gray-500 mb-1.5">Hvad det giver:</p>
+              <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-700">
+                {[1, 2, 4, 8].map((count) => {
+                  const f = { ...DEFAULT_FIDGET_SETTINGS, ...(settings.fidget ?? {}) };
+                  return (
+                    <span key={count}>
+                      {count} switch{count === 1 ? "" : "es"}{" "}
+                      <strong>{((f.basePrice + count * f.pricePerSwitch) / 100).toFixed(0)} kr</strong>
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={settingsSaving}
+              onClick={async () => {
+                setSettingsSaving(true);
+                await authedFetch("/api/settings", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(settings),
+                });
+                setSettingsSaving(false);
+                setSettingsMsg("✓ Fidget-indstillinger gemt!");
+                setTimeout(() => setSettingsMsg(""), 3000);
+              }}
+              className="bg-purple-600 text-white px-6 py-2.5 rounded-xl font-semibold hover:bg-purple-700 transition-colors disabled:opacity-60"
+            >
+              {settingsSaving ? "Gemmer..." : "Gem fidget-indstillinger"}
+            </button>
           </div>
         </div>
       )}
