@@ -66,6 +66,8 @@ export default function FidgetConfigurator() {
   const [textPick, setTextPick] = useState<string | null>(null);
   const [added, setAdded] = useState(false);
   const [webglOk, setWebglOk] = useState(true);
+  /** Opt-in size reference: a real house key laid beside the clicker. */
+  const [showScale, setShowScale] = useState(false);
   const [mesh, setMesh] = useState<FidgetMesh | null>(null);
 
   // Admin-only test download. Stays null for every normal visitor, and the token is
@@ -277,6 +279,7 @@ export default function FidgetConfigurator() {
             capColor={colourOf(capFilamentId)}
             textColor={colourOf(textFilamentId)}
             crossWidthMm={fidget.crossWidthMm}
+            showScale={showScale}
             onMeasure={onMeasure}
           />
         ) : (
@@ -286,10 +289,29 @@ export default function FidgetConfigurator() {
         )}
 
         {mesh && (
-          <p className="text-xs text-gray-500 text-center mt-2">
-            Kasse <strong className="text-gray-700">{mm(mesh.boxMm.w)} × {mm(mesh.boxMm.h)} cm</strong>
-            {" · "}{switchCount(config)} {fidget.switchLabel.toLowerCase()}
-            {switchCount(config) === 1 ? "" : "es"}
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-xs text-gray-500 mt-2">
+            <span>
+              Kasse <strong className="text-gray-700">{mm(mesh.boxMm.w)} × {mm(mesh.boxMm.h)} cm</strong>
+              {" · "}{switchCount(config)} {fidget.switchLabel.toLowerCase()}
+              {switchCount(config) === 1 ? "" : "es"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowScale((v) => !v)}
+              aria-pressed={showScale}
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-medium transition-colors ${
+                showScale
+                  ? "border-gray-300 bg-gray-100 text-gray-700"
+                  : "border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700"
+              }`}
+            >
+              🔑 Tjek størrelse
+            </button>
+          </div>
+        )}
+        {showScale && (
+          <p className="text-center text-[11px] text-gray-400 mt-1">
+            Nøglen er en helt almindelig husnøgle — vist i rigtig størrelse til sammenligning
           </p>
         )}
 

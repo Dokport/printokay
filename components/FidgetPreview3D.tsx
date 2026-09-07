@@ -19,6 +19,7 @@ import {
 } from "@/lib/fidgetMesh";
 import { FIDGET_FONT, normalizeLabels, type FidgetConfig } from "@/lib/fidget";
 import type { Tri } from "@/lib/keyringMesh";
+import { KeyArt, KEY_BOW_R, KEY_CENTRE_X } from "@/components/ScaleKeyArt";
 
 function trisToGeometry(tris: Tri[]): THREE.BufferGeometry {
   const positions = new Float32Array(tris.length * 9);
@@ -31,6 +32,9 @@ function trisToGeometry(tris: Tri[]): THREE.BufferGeometry {
   g.computeVertexNormals();
   return g;
 }
+
+/** Air between the clicker and the key, so they read as two separate things. */
+const KEY_GAP_MM = 9;
 
 type Piece = {
   geometry: THREE.BufferGeometry;
@@ -45,12 +49,14 @@ export type FidgetPreviewProps = {
   capColor: string;
   textColor: string;
   crossWidthMm?: number;
+  /** Lay a real house key beside the clicker, so its size reads at a glance. */
+  showScale?: boolean;
   /** Handed the built mesh, so the configurator can read dimensions off it. */
   onMeasure?: (mesh: FidgetMesh) => void;
 };
 
 export default function FidgetPreview3D({
-  config, boxColor, capColor, textColor, crossWidthMm, onMeasure,
+  config, boxColor, capColor, textColor, crossWidthMm, showScale = false, onMeasure,
 }: FidgetPreviewProps) {
   const [fontObj, setFontObj] = useState<OpenTypeFontLike | null>(null);
   const [fontError, setFontError] = useState(false);
@@ -86,13 +92,24 @@ export default function FidgetPreview3D({
 
   useEffect(() => { if (built && onMeasure) onMeasure(built); }, [built, onMeasure]);
 
-  const pieces = useMemo<Piece[] | null>(() => {
+  const scene = useMemo(() => {
     if (!built) return null;
     const place = assemblyPlacements({ cols, rows }, built);
     const [box, lid, ...caps] = built.objects;
     const out: Piece[] = [];
-    const push = (o: FidgetObject, p: { x: number; y: number; z: number; rotX: number }) => {
+    // Measured off the box alone: the caps stand above the table and the eye sticks
+    // out to one side, so the thing the key lies next to is the box's own footprint.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity;
+    const push = (o: FidgetObject, p: { x: number; y: number; z: number; rotX: number }, measure = false) => {
       for (const part of o.parts) {
+        if (measure) {
+          for (const t of part.tris) for (const v of t) {
+            const x = p.x + v[0], y = p.y + v[1];
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+          }
+        }
         out.push({
           geometry: trisToGeometry(part.tris),
           role: part.role,
@@ -101,16 +118,16 @@ export default function FidgetPreview3D({
         });
       }
     };
-    push(box, place.box);
+    push(box, place.box, true);
     push(lid, place.lid);
     caps.forEach((cap, i) => push(cap, place.caps[i]));
-    return out;
+    return { pieces: out, centreX: (minX + maxX) / 2, frontY: minY };
   }, [built, cols, rows]);
 
   const colourOf: Record<FidgetRole, string> = { box: boxColor, cap: capColor, text: textColor };
 
   if (fontError) return <Placeholder>Kunne ikke indlæse skrifttypen</Placeholder>;
-  if (!pieces) return <Placeholder>Indlæser 3D-model…</Placeholder>;
+  if (!scene) return <Placeholder>Indlæser 3D-model…</Placeholder>;
 
   return (
     <div className="w-full aspect-[4/3] rounded-2xl bg-gray-50 overflow-hidden">
@@ -119,9 +136,12 @@ export default function FidgetPreview3D({
         <directionalLight position={[40, -60, 90]} intensity={1.4} />
         <directionalLight position={[-50, 40, -30]} intensity={0.45} />
         {/* Re-key on everything that changes the model's size, so the framing re-fits. */}
-        <Bounds key={`${cols}x${rows}x${keyring ? "ring" : "plain"}`} fit clip observe margin={1.2}>
+        <Bounds
+          key={`${cols}x${rows}x${keyring ? "ring" : "plain"}x${showScale ? "key" : "solo"}`}
+          fit clip observe margin={1.2}
+        >
           <group>
-            {pieces.map((p, i) => (
+            {scene.pieces.map((p, i) => (
               <mesh key={i} geometry={p.geometry} position={p.pos} rotation={[p.rotX, 0, 0]}>
                 <meshStandardMaterial
                   color={colourOf[p.role]}
@@ -130,6 +150,15 @@ export default function FidgetPreview3D({
                 />
               </mesh>
             ))}
+            {/*
+              Lying flat on the same table the box stands on, in front of it and
+              clear of the eye — an outline beside the product, not a second product.
+            */}
+            {showScale && (
+              <group position={[scene.centreX - KEY_CENTRE_X, scene.frontY - KEY_GAP_MM - KEY_BOW_R, 0]}>
+                <KeyArt />
+              </group>
+            )}
           </group>
         </Bounds>
         <OrbitControls makeDefault enablePan={false} enableDamping minDistance={30} maxDistance={500} />

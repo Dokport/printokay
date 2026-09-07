@@ -11,15 +11,16 @@
  * Must be loaded with `next/dynamic` + `ssr: false` (three.js is client-only).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Bounds, Line } from "@react-three/drei";
+import { OrbitControls, Bounds } from "@react-three/drei";
 import * as THREE from "three";
 import { loadFont } from "@/lib/fontLoader";
 import { contoursFromFont, type OpenTypeFontLike } from "@/lib/textpaths";
 import { buildKeyringMesh, TOTAL_HEIGHT_MM, type Tri } from "@/lib/keyringMesh";
 import { calcFontSize, type KeyringConfig, type KeyringSizeOption } from "@/lib/keyring";
 import { splitTextLines } from "@/lib/textpaths";
+import { KeyArt, SplitRingArt, SPLIT_RING_R, SPLIT_RING_WIRE } from "@/components/ScaleKeyArt";
 
 
 
@@ -55,87 +56,6 @@ function bboxOf(tris: Tri[]) {
 
 const cm = (mm: number) => (mm / 10).toFixed(1).replace(".", ",");
 
-// ─── Scale reference: an ordinary house key ────────────────────────────────────
-
-// Profile of a Ruko 500-series house key, at true size: 24mm bow, ~58mm overall.
-const KEY_BOW_R = 12;     // bow radius (mm)
-const KEY_HOLE_R = 3.6;
-const KEY_HOLE_X = -4.5;  // hole sits above centre, away from the blade
-const KEY_HALF_H = 4.2;   // blade half-height
-const KEY_TIP_X = 46;
-
-/** Outer contour of the key, traced along +X from the bow. */
-function keyOutline(): THREE.Vector3[] {
-  const jx = Math.sqrt(KEY_BOW_R * KEY_BOW_R - KEY_HALF_H * KEY_HALF_H); // bow/blade junction
-  const a = Math.atan2(KEY_HALF_H, jx);
-  const p: THREE.Vector3[] = [];
-  const at = (x: number, y: number) => p.push(new THREE.Vector3(x, y, 0));
-
-  // Bow: the long way round, from the toothed side to the spine side.
-  const steps = 72;
-  for (let i = 0; i <= steps; i++) {
-    const t = -a - (i / steps) * (2 * Math.PI - 2 * a); // clockwise, the long way
-    at(Math.cos(t) * KEY_BOW_R, Math.sin(t) * KEY_BOW_R);
-  }
-  // Straight spine out to the tip, then the angled tip.
-  at(KEY_TIP_X - 3.5, KEY_HALF_H);
-  at(KEY_TIP_X, KEY_HALF_H - 3.2);
-  at(KEY_TIP_X, -KEY_HALF_H);
-  // Bitting: V-cuts back along the underside towards the bow.
-  const cuts: [number, number][] = [
-    [3, 0], [5.5, 2.6], [8, 0], [10.5, 3.0], [13, 0],
-    [15.5, 2.2], [18, 0], [20.5, 2.8], [23, 0],
-  ];
-  for (const [back, up] of cuts) at(KEY_TIP_X - back, -KEY_HALF_H + up);
-  at(jx, -KEY_HALF_H);
-  return p;
-}
-
-/** The bow's hole, as its own closed loop. */
-function keyHoleOutline(): THREE.Vector3[] {
-  const p: THREE.Vector3[] = [];
-  for (let i = 0; i <= 48; i++) {
-    const t = (i / 48) * Math.PI * 2;
-    p.push(new THREE.Vector3(KEY_HOLE_X + Math.cos(t) * KEY_HOLE_R, Math.sin(t) * KEY_HOLE_R, 0));
-  }
-  return p;
-}
-
-// A chunky 30mm split ring, drawn as its two wire edges.
-const SPLIT_RING_R = 15;
-const SPLIT_RING_WIRE = 2;
-/** Line art sits on an opaque fill, so nothing shows through between the strokes. */
-const FILL_COLOR = "#f7f9fb";
-
-function circleOutline(r: number, steps = 64): THREE.Vector3[] {
-  const p: THREE.Vector3[] = [];
-  for (let i = 0; i <= steps; i++) {
-    const t = (i / steps) * Math.PI * 2;
-    p.push(new THREE.Vector3(Math.cos(t) * r, Math.sin(t) * r, 0));
-  }
-  return p;
-}
-
-/** Filled annulus matching the split-ring outlines. */
-function ringFillShape(): THREE.Shape {
-  const s = new THREE.Shape();
-  s.absarc(0, 0, SPLIT_RING_R, 0, Math.PI * 2, false);
-  const h = new THREE.Path();
-  h.absarc(0, 0, SPLIT_RING_R - SPLIT_RING_WIRE, 0, Math.PI * 2, true);
-  s.holes.push(h);
-  return s;
-}
-
-/** Filled key body matching the key outlines (bow hole punched out). */
-function keyFillShape(): THREE.Shape {
-  const s = new THREE.Shape();
-  s.setFromPoints(keyOutline().map((v) => new THREE.Vector2(v.x, v.y)));
-  const h = new THREE.Path();
-  h.absarc(KEY_HOLE_X, 0, KEY_HOLE_R, 0, Math.PI * 2, true);
-  s.holes.push(h);
-  return s;
-}
-
 /**
  * Size reference, staged like a product shot: a split ring threaded through the
  * keyring's own hole, with an ordinary house key hanging off it. Both are drawn as
@@ -149,15 +69,6 @@ function ScaleKey({
   ring: ReturnType<typeof bboxOf>;
   hole: { cx: number; cy: number; r: number };
 }) {
-  const keyBody = useMemo(() => keyOutline(), []);
-  const keyHole = useMemo(() => keyHoleOutline(), []);
-  const ringOuter = useMemo(() => circleOutline(SPLIT_RING_R), []);
-  const ringInner = useMemo(() => circleOutline(SPLIT_RING_R - SPLIT_RING_WIRE), []);
-  const ringFill = useMemo(() => new THREE.ShapeGeometry(ringFillShape()), []);
-  const keyFill = useMemo(() => new THREE.ShapeGeometry(keyFillShape()), []);
-  useEffect(() => () => { ringFill.dispose(); keyFill.dispose(); }, [ringFill, keyFill]);
-  const stroke = "#8b98a9";
-
   // Everything hangs off the plate's hole, in the direction pointing away from the
   // plate — so the arrangement stays sensible whether the hole is on top or the side.
   const cx = (ring.minX + ring.maxX) / 2;
@@ -201,21 +112,11 @@ function ScaleKey({
     <group>
       {/* Split ring — opaque annulus under its two wire edges */}
       <group position={[rx, ry, z]} quaternion={ringQuat}>
-        <mesh geometry={ringFill} position={[0, 0, -0.05]}>
-          <meshBasicMaterial color={FILL_COLOR} side={THREE.DoubleSide} />
-        </mesh>
-        <Line points={ringOuter} color={stroke} lineWidth={1.6} />
-        <Line points={ringInner} color={stroke} lineWidth={1.6} />
+        <SplitRingArt />
       </group>
       {/* Key, threaded on the ring by its bow hole and pointing outwards */}
       <group position={[kx, ky, z]} rotation={[0, 0, keyAngle]}>
-        <group position={[-KEY_HOLE_X, 0, 0]}>
-          <mesh geometry={keyFill} position={[0, 0, -0.05]}>
-            <meshBasicMaterial color={FILL_COLOR} side={THREE.DoubleSide} />
-          </mesh>
-          <Line points={keyBody} color={stroke} lineWidth={1.6} />
-          <Line points={keyHole} color={stroke} lineWidth={1.6} />
-        </group>
+        <KeyArt />
       </group>
     </group>
   );
