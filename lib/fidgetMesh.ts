@@ -67,13 +67,15 @@ const BOX_R_MM         = 3.0;
 const FLOOR_T_MM       = 2.0;
 /**
  * How far a switch hangs below the plate's underside: the lower housing reaches
- * about 3.5mm down, and the pins about 3.3mm below that. Plate-mount switches with
- * the pins clipped need barely half of it — this is the figure for the worst case,
- * a 5-pin switch going in untouched. It is the ONLY thing setting the box height,
- * so it is named rather than folded into the cavity number.
+ * about 3.5mm down, and the pins about 3.3mm below that.
+ *
+ * Clipping the pins buys nothing — the centre guide post reaches just as far down
+ * as the contacts do, so this depth is needed whatever is done to the legs. It is
+ * the ONLY thing setting the box height, so it is named rather than folded into
+ * the cavity number.
  */
 const SWITCH_BELOW_PLATE_MM = 7.0;
-const SWITCH_AIR_MM         = 1.5;  // so a long pin never lands on the floor
+const SWITCH_AIR_MM         = 1.5;  // so nothing lands hard on the floor
 const CAVITY_H_MM      = SWITCH_BELOW_PLATE_MM + SWITCH_AIR_MM;
 const CAVITY_MARGIN_MM = 1.0;  // cavity beyond the outermost switch pitch cell
 const RIM_STEP_MM      = 1.0;  // the lid sits in a recess this deep into the wall
