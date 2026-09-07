@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
   const config: FidgetConfig = {
     cols, rows,
     labels: Array.isArray(body.labels) ? body.labels.map((l) => String(l ?? "")) : [],
+    keyring: !!body.keyring,
     boxFilamentId: "", capFilamentId: "", textFilamentId: "",
   };
 

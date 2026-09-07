@@ -66,7 +66,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     const cartKey = options?.keyringData
       ? `keyring-${options.keyringData.text}-${options.keyringData.sizeId}-${options.keyringData.baseFilamentId}-${options.keyringData.textFilamentId}`
       : fd
-        ? `fidget-${fd.cols}x${fd.rows}-${fd.labels.join("|")}-${fd.boxFilamentId}-${fd.capFilamentId}-${fd.textFilamentId}`
+        ? `fidget-${fd.cols}x${fd.rows}-${fd.keyring ? "ring" : "plain"}-${fd.labels.join("|")}-${fd.boxFilamentId}-${fd.capFilamentId}-${fd.textFilamentId}`
         : makeCartKey(product.id, choices);
 
     setItems((prev) => {

@@ -68,6 +68,19 @@ const FLOOR_T_MM       = 2.0;
 const CAVITY_H_MM      = 12.0; // switch body 8.3 + pins, below the plate
 const CAVITY_MARGIN_MM = 1.0;  // cavity beyond the outermost switch pitch cell
 const RIM_STEP_MM      = 1.0;  // the lid sits in a recess this deep into the wall
+/**
+ * The optional keyring eye: a lug off the left end of the box with a 5mm hole.
+ *
+ * It lives in the FLOOR, not up the wall, so it prints flat on the bed with no
+ * support and the hole comes out round. It is sunk into the box the same way the
+ * oval keyring's eye is — most of the material around the hole is box wall rather
+ * than an added stalk, which is what a lug snaps off at.
+ */
+const EYE_HOLE_R_MM     = 2.5;
+const EYE_WALL_MM       = 3.0;   // material around the hole
+const EYE_PROTRUSION_MM = 6.0;   // how far the eye stands out past the box
+const EYE_BLEND_MM      = 2.5;   // fillet where the eye meets the box
+const EYE_OVERLAP_MM    = 3.0;   // how far the lug reaches into the box, so the two merge
 const LID_CLEARANCE_MM = 0.15;
 /**
  * How far a cap's skirt sits above the plate once it is on a switch. A Cherry MX
@@ -90,6 +103,15 @@ const SCALE = 1000;
 type IPt = { X: number; Y: number };
 const toC = (poly: P2[]): IPt[] => poly.map((p) => ({ X: Math.round(p.x * SCALE), Y: Math.round(p.y * SCALE) }));
 const fromC = (poly: IPt[]): P2[] => poly.map((p) => ({ x: p.X / SCALE, y: p.Y / SCALE }));
+
+/** Grow a region outward with round joins. */
+function dilate(region: P2[][], deltaMm: number): P2[][] {
+  const co = new ClipperLib.ClipperOffset(2.0, SCALE * 0.05);
+  co.AddPaths(region.filter((p) => p.length >= 3).map(toC), ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+  const out: IPt[][] = [];
+  co.Execute(out, deltaMm * SCALE);
+  return out.filter((p) => p.length >= 3).map(fromC);
+}
 
 /** Boolean on contour sets. Result is clean, disjoint, orientation-normalised. */
 function clip(
@@ -299,13 +321,57 @@ export function buildFidgetMesh(
   const rim    = [roundedRect(0, 0, rimW, rimH, BOX_R_MM - BOX_WALL_MM + RIM_STEP_MM)];
   const lid    = [roundedRect(0, 0, lidW, lidH, BOX_R_MM - BOX_WALL_MM + RIM_STEP_MM - LID_CLEARANCE_MM)];
 
+  // ── Optional keyring eye, off the left end ──
+  const eyeR = EYE_HOLE_R_MM + EYE_WALL_MM;
+  const eyeCX = -boxW / 2 - EYE_PROTRUSION_MM + eyeR;
+
+  /**
+   * Only the lump that hangs OUTSIDE the box, filleted where it meets it.
+   *
+   * The obvious route — erode the whole box with the eye, then dilate — puts the
+   * box's own outline back through clipper, which re-samples the rounded corners at
+   * different points than roundedRect did. The far corners then disagree between the
+   * layer that has the eye and the layer above it by a fraction of a micron, and the
+   * mesh is no longer closed. Adding only the outside lump leaves every vertex away
+   * from the eye exactly as it was.
+   */
+  const eyeAddition = ((): P2[][] => {
+    if (!cfg.keyring) return [];
+    const eroded = clip(
+      [roundedRect(0, 0, boxW - 2 * EYE_BLEND_MM, boxH - 2 * EYE_BLEND_MM, Math.max(0.5, BOX_R_MM - EYE_BLEND_MM))],
+      [circle(eyeCX, 0, eyeR - EYE_BLEND_MM, 48)],
+      "union"
+    );
+    // Windowed to the eye, and reaching a few millimetres INTO the box.
+    //
+    // Subtracting the box instead would leave the lump merely touching it along the
+    // wall, and clipper keeps two polygons that touch without overlapping — the
+    // shared edge then gets a wall from each of them and the mesh is open. Real
+    // overlap merges. The window keeps the dilate's arc sampling away from the box's
+    // far corners, which is what has to stay untouched.
+    const half = eyeR + EYE_BLEND_MM + 2;
+    const window = rect(eyeCX - half, -half, -boxW / 2 + EYE_OVERLAP_MM, half);
+    return clip(dilate(eroded, EYE_BLEND_MM), [window], "intersection");
+  })();
+
+  const withEye = (region: P2[][]): P2[][] => {
+    if (!eyeAddition.length) return region;
+    return clip(clip(region, eyeAddition, "union"), [circle(eyeCX, 0, EYE_HOLE_R_MM, 40)], "difference");
+  };
+
   // ── Box: floor, walls, then a thinner rim the lid drops into ──
   const zWallTop = FLOOR_T_MM + CAVITY_H_MM;
   const boxZ = zWallTop + PLATE_T_MM;
+  // The eye runs the FULL height of the box. Stopping it partway would put a layer
+  // boundary right where its fillet runs tangentially back into the box wall, and two
+  // nearly-tangent outlines crossing there leave hundredth-of-a-millimetre slivers
+  // that have a face and no wall. Full height removes the boundary instead of trying
+  // to clean up after it — and a lug as tall as the box is what carries a keyring
+  // anyway.
   const box = layeredPrism([
-    { z0: 0,         z1: FLOOR_T_MM, region: outer },
-    { z0: FLOOR_T_MM, z1: zWallTop,  region: clip(outer, cavity, "difference") },
-    { z0: zWallTop,  z1: boxZ,       region: clip(outer, rim, "difference") },
+    { z0: 0,          z1: FLOOR_T_MM, region: withEye(outer) },
+    { z0: FLOOR_T_MM, z1: zWallTop,   region: withEye(clip(outer, cavity, "difference")) },
+    { z0: zWallTop,   z1: boxZ,       region: withEye(clip(outer, rim, "difference")) },
   ]);
 
   // ── Lid = switch plate ──
@@ -326,7 +392,11 @@ export function buildFidgetMesh(
   ]);
 
   const objects: FidgetObject[] = [
-    { name: "Kasse", parts: [{ name: "Kasse", role: "box", tris: box }], size: { w: boxW, h: boxH, z: boxZ } },
+    {
+      name: "Kasse",
+      parts: [{ name: "Kasse", role: "box", tris: box }],
+      size: { w: boxW + (cfg.keyring ? EYE_PROTRUSION_MM : 0), h: boxH, z: boxZ },
+    },
     { name: "Låg",   parts: [{ name: "Låg",   role: "box", tris: lidTris }], size: { w: lidW, h: lidH, z: bezelTop } },
   ];
 
@@ -363,7 +433,11 @@ export function buildFidgetMesh(
     });
   }
 
-  return { objects, capHeightsMm, boxMm: { w: boxW, h: boxH, z: boxZ } };
+  return {
+    objects,
+    capHeightsMm,
+    boxMm: { w: boxW + (cfg.keyring ? EYE_PROTRUSION_MM : 0), h: boxH, z: boxZ },
+  };
 }
 
 /**

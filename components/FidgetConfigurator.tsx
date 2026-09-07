@@ -50,6 +50,7 @@ export default function FidgetConfigurator() {
 
   const [cols, setCols] = useState(2);
   const [rows, setRows] = useState(2);
+  const [keyring, setKeyring] = useState(false);
   const [labels, setLabels] = useState<string[]>([]);
   /**
    * Which cap fields the customer has taken over from the examples. Needed so an
@@ -138,8 +139,8 @@ export default function FidgetConfigurator() {
   );
 
   const config: FidgetConfig = useMemo(
-    () => ({ cols, rows, labels: capLabels, boxFilamentId, capFilamentId, textFilamentId }),
-    [cols, rows, capLabels, boxFilamentId, capFilamentId, textFilamentId]
+    () => ({ cols, rows, keyring, labels: capLabels, boxFilamentId, capFilamentId, textFilamentId }),
+    [cols, rows, keyring, capLabels, boxFilamentId, capFilamentId, textFilamentId]
   );
 
   const colourOf = (id: string) => inStock.find((f) => f.id === id)?.colorHex ?? "#cccccc";
@@ -177,7 +178,7 @@ export default function FidgetConfigurator() {
           tolerance
             ? { tolerance: true, capColorHex: colourOf(capFilamentId), textColorHex: colourOf(textFilamentId) }
             : {
-                cols, rows, labels: capLabels,
+                cols, rows, keyring, labels: capLabels,
                 boxColorHex: colourOf(boxFilamentId),
                 capColorHex: colourOf(capFilamentId),
                 textColorHex: colourOf(textFilamentId),
@@ -206,7 +207,7 @@ export default function FidgetConfigurator() {
     const product = {
       id: "fidget",
       name: "Custom Fidget Clicker",
-      description: `${cols}×${rows} — ${switchCount(config)} switches`,
+      description: `${cols}×${rows} — ${switchCount(config)} switches${keyring ? ", med nøglering" : ""}`,
       price,
       image: "",
       emoji: "",
@@ -217,7 +218,7 @@ export default function FidgetConfigurator() {
     };
     addItem(product, {
       fidgetData: {
-        cols, rows,
+        cols, rows, keyring,
         labels: capLabels,
         boxFilamentId, boxFilamentName: nameOf(boxFilamentId), boxColorHex: colourOf(boxFilamentId),
         capFilamentId, capFilamentName: nameOf(capFilamentId), capColorHex: colourOf(capFilamentId),
@@ -349,6 +350,33 @@ export default function FidgetConfigurator() {
           </p>
         </div>
 
+        {/* Keyring option */}
+        <label className="flex items-start gap-3 rounded-2xl border-2 p-4 cursor-pointer transition-all"
+          style={{
+            borderColor: keyring ? primaryColor : "#e5e7eb",
+            backgroundColor: keyring ? `color-mix(in srgb, ${primaryColor} 6%, white)` : "white",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={keyring}
+            onChange={(e) => setKeyring(e.target.checked)}
+            className="mt-0.5 w-5 h-5 shrink-0 accent-current"
+            style={{ color: primaryColor }}
+          />
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-gray-700">
+              🔑 Med nøglering
+              {fidget.keyringPrice > 0 && (
+                <span className="font-normal text-gray-400"> — {formatPrice(fidget.keyringPrice)}</span>
+              )}
+            </span>
+            <span className="block text-xs text-gray-500 mt-0.5">
+              Et øje i enden af kassen med en løs nøglering, så den kan hænge på nøglebundtet.
+            </span>
+          </span>
+        </label>
+
         {/* Cap labels, laid out as the grid they will be printed in */}
         <div>
           <label className="text-sm font-semibold text-gray-700 mb-2 block">
@@ -401,6 +429,12 @@ export default function FidgetConfigurator() {
             <span>{switchCount(config)} × switch med knap</span>
             <span>{formatPrice(switchCount(config) * fidget.pricePerSwitch)}</span>
           </div>
+          {keyring && fidget.keyringPrice > 0 && (
+            <div className="flex justify-between">
+              <span>Nøglering</span>
+              <span>{formatPrice(fidget.keyringPrice)}</span>
+            </div>
+          )}
           <div className="border-t border-gray-200 mt-1 pt-2 flex justify-between font-bold text-base" style={{ color: primaryColor }}>
             <span>I alt</span>
             <span>{formatPrice(price)}</span>

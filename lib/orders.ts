@@ -32,6 +32,7 @@ export type OrderItemFidget = {
   cols: number;
   rows: number;
   labels: string[];
+  keyring: boolean;
   boxColorHex: string;
   capColorHex: string;
   textColorHex: string;

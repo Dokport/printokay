@@ -62,7 +62,7 @@ export async function loadPricing(): Promise<Pricing> {
           Number.isInteger(cols) && Number.isInteger(rows) &&
           cols >= 1 && cols <= MAX_COLS && rows >= 1 && rows <= MAX_ROWS;
         if (!sane) return null;
-        return calcFidgetPrice({ cols, rows }, fidgetSettings);
+        return calcFidgetPrice({ cols, rows, keyring: !!item.fidgetData.keyring }, fidgetSettings);
       }
       const product = byId.get(item.product?.id);
       return product ? product.price : null;

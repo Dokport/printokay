@@ -68,7 +68,7 @@ export default function FidgetPreview3D({
   // JSON, not a joined string: a separator would have to be a character no label
   // can ever contain, and getting that wrong silently turns "MMM" into three caps.
   const labelKey = JSON.stringify(normalizeLabels(config));
-  const { cols, rows } = config;
+  const { cols, rows, keyring } = config;
 
   const built = useMemo(() => {
     if (!fontObj) return null;
@@ -82,7 +82,7 @@ export default function FidgetPreview3D({
       return null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fontObj, cols, rows, labelKey, crossWidthMm]);
+  }, [fontObj, cols, rows, keyring, labelKey, crossWidthMm]);
 
   useEffect(() => { if (built && onMeasure) onMeasure(built); }, [built, onMeasure]);
 
@@ -118,8 +118,8 @@ export default function FidgetPreview3D({
         <ambientLight intensity={0.85} />
         <directionalLight position={[40, -60, 90]} intensity={1.4} />
         <directionalLight position={[-50, 40, -30]} intensity={0.45} />
-        {/* Re-key on the grid so the framing re-fits when the box changes size. */}
-        <Bounds key={`${cols}x${rows}`} fit clip observe margin={1.2}>
+        {/* Re-key on everything that changes the model's size, so the framing re-fits. */}
+        <Bounds key={`${cols}x${rows}x${keyring ? "ring" : "plain"}`} fit clip observe margin={1.2}>
           <group>
             {pieces.map((p, i) => (
               <mesh key={i} geometry={p.geometry} position={p.pos} rotation={[p.rotX, 0, 0]}>

@@ -224,6 +224,7 @@ export default function KurvPage() {
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {fd.cols * fd.rows} × {fd.switchLabel.toLowerCase()}
+                    {fd.keyring && " · med nøglering"}
                     {fd.labels.some(Boolean) && ` · ${fd.labels.filter(Boolean).join(" ")}`}
                   </p>
                   <div className="flex items-center gap-3 mt-1 flex-wrap">

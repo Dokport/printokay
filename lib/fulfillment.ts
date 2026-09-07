@@ -138,7 +138,7 @@ async function buildOrderItem(
     const count = switchCount(fd);
     return {
       name: `Fidget clicker ${fd.cols}×${fd.rows}${written ? ` "${written}"` : ""}`,
-      description: `${count} × ${fd.switchLabel} — kasse ${fd.boxFilamentName}, knapper ${fd.capFilamentName}, tekst ${fd.textFilamentName}`,
+      description: `${count} × ${fd.switchLabel} — kasse ${fd.boxFilamentName}, knapper ${fd.capFilamentName}, tekst ${fd.textFilamentName}${fd.keyring ? " · med nøglering" : ""}`,
       emoji: "🎛️",
       quantity: ci.quantity,
       unitAmount,
@@ -146,6 +146,7 @@ async function buildOrderItem(
         cols: fd.cols,
         rows: fd.rows,
         labels,
+        keyring: !!fd.keyring,
         boxColorHex: fd.boxColorHex,
         capColorHex: fd.capColorHex,
         textColorHex: fd.textColorHex,

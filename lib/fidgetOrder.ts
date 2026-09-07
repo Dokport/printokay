@@ -22,6 +22,7 @@ export async function buildFidget3mfFor(fidget: OrderItemFidget): Promise<Buffer
       cols: fidget.cols,
       rows: fidget.rows,
       labels: fidget.labels,
+      keyring: fidget.keyring,
       boxFilamentId: "", capFilamentId: "", textFilamentId: "",
     },
     { box: fidget.boxColorHex, cap: fidget.capColorHex, text: fidget.textColorHex },

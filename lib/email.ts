@@ -26,7 +26,7 @@ function itemDescription(item: OrderItem): string | null {
   }
   if (item.fidget) {
     const f = item.fidget;
-    return `${f.cols * f.rows} × ${f.switchLabel} · kasse ${f.boxFilamentName}, knapper ${f.capFilamentName}, tekst ${f.textFilamentName}`;
+    return `${f.cols * f.rows} × ${f.switchLabel}${f.keyring ? " · med nøglering" : ""} · kasse ${f.boxFilamentName}, knapper ${f.capFilamentName}, tekst ${f.textFilamentName}`;
   }
   if (item.colorChoices?.length) {
     return item.colorChoices.map((c) => `${c.slotLabel}: ${c.filamentName}`).join(" · ");

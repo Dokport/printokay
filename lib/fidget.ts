@@ -34,6 +34,8 @@ export type FidgetConfig = {
   rows: number;              // 1..MAX_ROWS
   /** One entry per switch, row-major (top row first, left to right). "" = blank cap. */
   labels: string[];
+  /** Adds a lug with a 5mm hole to the box, so it can hang on a keychain. */
+  keyring?: boolean;
   boxFilamentId: string;     // box + lid
   capFilamentId: string;
   textFilamentId: string;
@@ -66,6 +68,8 @@ export type FidgetSettings = {
    * calibrated from a test print and kept here.
    */
   crossWidthMm: number;
+  /** Surcharge for the keyring eye, in øre — it costs a split ring and some plastic. */
+  keyringPrice: number;
 };
 
 export const DEFAULT_FIDGET_SETTINGS: FidgetSettings = {
@@ -74,6 +78,7 @@ export const DEFAULT_FIDGET_SETTINGS: FidgetSettings = {
   pricePerSwitch: 2500,
   switchLabel: "Klik-switch",
   crossWidthMm: 1.35,
+  keyringPrice: 1500,
   filamentIds: [],
 };
 
@@ -81,8 +86,11 @@ export function switchCount(cfg: Pick<FidgetConfig, "cols" | "rows">): number {
   return cfg.cols * cfg.rows;
 }
 
-export function calcFidgetPrice(cfg: Pick<FidgetConfig, "cols" | "rows">, s: FidgetSettings): number {
-  return s.basePrice + switchCount(cfg) * s.pricePerSwitch;
+export function calcFidgetPrice(
+  cfg: Pick<FidgetConfig, "cols" | "rows" | "keyring">,
+  s: FidgetSettings
+): number {
+  return s.basePrice + switchCount(cfg) * s.pricePerSwitch + (cfg.keyring ? s.keyringPrice : 0);
 }
 
 /**

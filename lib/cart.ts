@@ -34,6 +34,7 @@ export type FidgetCartData = {
   cols: number;
   rows: number;
   labels: string[];        // one per switch, row-major; "" is a blank cap
+  keyring: boolean;        // adds the lug with a 5mm hole
   boxFilamentId: string;
   boxFilamentName: string;
   boxColorHex: string;

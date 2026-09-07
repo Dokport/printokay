@@ -105,11 +105,12 @@ export default function ShopClient({ products, settings }: Props) {
         <p className="text-gray-600 text-lg max-w-xl mx-auto">{settings.tagline}</p>
       </section>
 
-      {/* ── Featured: Custom Nøglering — hidden once configurator is open ── */}
+      {/* ── Featured designers — hidden once one of them is open ── */}
       {!showConfigurator && (
+      <div className={`mb-10 grid gap-4 ${fidgetOffered ? "lg:grid-cols-[3fr_2fr]" : ""}`}>
         <button
           onClick={openKeyring}
-          className="group relative w-full mb-10 overflow-hidden rounded-3xl text-left shadow-md hover:shadow-xl transition-shadow"
+          className="group relative w-full overflow-hidden rounded-3xl text-left shadow-md hover:shadow-xl transition-shadow"
           style={{ background: `linear-gradient(135deg, ${primaryColor} 0%, ${accentColor} 100%)` }}
         >
           <span className="pointer-events-none absolute -top-16 -right-10 w-64 h-64 rounded-full bg-white/10 blur-2xl" />
@@ -137,6 +138,34 @@ export default function ShopClient({ products, settings }: Props) {
             </span>
           </div>
         </button>
+
+        {fidgetOffered && (
+          <button
+            onClick={openFidget}
+            className="group relative overflow-hidden rounded-3xl text-left shadow-md hover:shadow-xl transition-shadow bg-gray-900"
+          >
+            <span className="pointer-events-none absolute -top-10 -left-8 w-48 h-48 rounded-full blur-2xl"
+              style={{ backgroundColor: `${accentColor}44` }} />
+            <span className="pointer-events-none absolute -bottom-16 -right-6 w-52 h-52 rounded-full blur-2xl"
+              style={{ backgroundColor: `${primaryColor}55` }} />
+
+            <div className="relative flex flex-col h-full p-7 sm:p-8">
+              <span className="inline-flex self-start items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-white text-gray-900 mb-3">
+                ✨ Nyhed
+              </span>
+              <h2 className="text-2xl font-bold text-white mb-2">Byg din egen fidget clicker</h2>
+              <p className="text-white/80 text-sm leading-relaxed mb-5">
+                Rigtige mekaniske klik-knapper i en lille kasse. Vælg antal, farver og
+                hvad der står på hver knap.
+              </p>
+              <span className="mt-auto inline-flex items-center gap-2 self-start px-5 py-2.5 rounded-full bg-white font-semibold text-sm text-gray-900 shadow-sm transition-transform group-hover:translate-x-0.5">
+                Prøv den
+                <span aria-hidden className="transition-transform group-hover:translate-x-1">→</span>
+              </span>
+            </div>
+          </button>
+        )}
+      </div>
       )}
 
       {/* Category tabs */}

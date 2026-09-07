@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
       descParts.push(`Tekst: ${kd.textFilamentName}`);
     } else if (fd) {
       descParts.push(`${fd.cols * fd.rows} × ${fd.switchLabel}`);
+      if (fd.keyring) descParts.push("Med nøglering");
       descParts.push(`Kasse: ${fd.boxFilamentName}`);
       descParts.push(`Knapper: ${fd.capFilamentName}`);
       descParts.push(`Tekst: ${fd.textFilamentName}`);
