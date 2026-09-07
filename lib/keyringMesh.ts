@@ -124,15 +124,27 @@ function pointInPolygon(p: P2, poly: P2[]): boolean {
   return inside;
 }
 
-/** A representative interior point of a polygon. */
+/**
+ * A point strictly inside a polygon.
+ *
+ * The centroid of the first three vertices is NOT that for a concave outline: on
+ * an "Å" it fell between the legs of the A, outside the glyph, and on an "Æ" it
+ * landed inside the A's counter — so the outline counted as inside its own hole and
+ * was faced as solid on top of the solid it should have been cut from. An ear from
+ * earcut is inside by construction; the largest one keeps the point clear of the
+ * boundary.
+ */
 function samplePoint(poly: P2[]): P2 {
-  if (poly.length >= 3) {
-    return {
-      x: (poly[0].x + poly[1].x + poly[2].x) / 3,
-      y: (poly[0].y + poly[1].y + poly[2].y) / 3,
-    };
+  if (poly.length < 3) return poly[0];
+  const flat = poly.flatMap((p) => [p.x, p.y]);
+  const idx = earcut(flat);
+  let best: P2 | null = null, bestArea = -1;
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = poly[idx[i]], b = poly[idx[i + 1]], c = poly[idx[i + 2]];
+    const area = Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
+    if (area > bestArea) { bestArea = area; best = { x: (a.x + b.x + c.x) / 3, y: (a.y + b.y + c.y) / 3 }; }
   }
-  return poly[0];
+  return best ?? { x: (poly[0].x + poly[1].x + poly[2].x) / 3, y: (poly[0].y + poly[1].y + poly[2].y) / 3 };
 }
 
 // ─── Clipper helpers ──────────────────────────────────────────────────────────
@@ -149,7 +161,7 @@ function fromClipper(poly: IPt[]): P2[] {
 /**
  * Clean + union a set of contours into well-formed disjoint polygons.
  */
-function cleanUnion(contours: P2[][]): P2[][] {
+export function cleanUnion(contours: P2[][]): P2[][] {
   const paths = contours.filter((c) => c.length >= 3).map(toClipper);
   if (!paths.length) return [];
 
@@ -222,46 +234,37 @@ function bubbleAround(contours: P2[][], deltaMm: number): P2[] | null {
 
 // ─── Containment-depth grouping (orientation-independent) ──────────────────────
 
-type Group = { outer: P2[]; holes: P2[][] };
+export type Group = { outer: P2[]; holes: P2[][] };
 
-function groupByDepth(contours: P2[][]): Group[] {
-  const n = contours.length;
-  const sample = contours.map(samplePoint);
-  const area = contours.map((c) => Math.abs(signedArea(c)));
-
-  const depth = new Array(n).fill(0);
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      if (i === j) continue;
-      if (pointInPolygon(sample[i], contours[j])) depth[i]++;
-    }
-  }
-
+/**
+ * Sort contours into solids and the holes that belong to them.
+ *
+ * Input must come out of clipper (every caller here passes cleanUnion output), whose
+ * orientation is normalised: positive area is a solid, negative a hole. That sign is
+ * the classification. Containment is only used to find each hole's parent, and only
+ * solids LARGER than the hole are candidates — an island sitting inside the hole
+ * (the counter of an "Æ") is smaller than it and must not claim it.
+ */
+export function groupByDepth(contours: P2[][]): Group[] {
+  const signed = contours.map(signedArea);
   const groups: Group[] = [];
-  const groupIndexOf = new Array(n).fill(-1);
+  const groupOfContour = new Array<number>(contours.length).fill(-1);
 
-  for (let i = 0; i < n; i++) {
-    if (depth[i] % 2 === 0) {
-      groupIndexOf[i] = groups.length;
-      groups.push({ outer: contours[i], holes: [] });
-    }
-  }
+  contours.forEach((c, i) => {
+    if (signed[i] > 0) { groupOfContour[i] = groups.length; groups.push({ outer: c, holes: [] }); }
+  });
 
-  for (let i = 0; i < n; i++) {
-    if (depth[i] % 2 === 1) {
-      let bestSolid = -1;
-      let bestArea = Infinity;
-      for (let j = 0; j < n; j++) {
-        if (depth[j] === depth[i] - 1 &&
-            pointInPolygon(sample[i], contours[j]) &&
-            area[j] < bestArea) {
-          bestArea = area[j];
-          bestSolid = j;
-        }
-      }
-      if (bestSolid >= 0) groups[groupIndexOf[bestSolid]].holes.push(contours[i]);
-    }
-  }
+  contours.forEach((c, i) => {
+    if (signed[i] >= 0) return;
+    const holeArea = -signed[i];
+    const inside = samplePoint(c);
+    let parent = -1, parentArea = Infinity;
+    contours.forEach((o, j) => {
+      if (signed[j] <= holeArea || signed[j] >= parentArea) return;
+      if (pointInPolygon(inside, o)) { parent = j; parentArea = signed[j]; }
+    });
+    if (parent >= 0) groups[groupOfContour[parent]].holes.push(c);
+  });
 
   return groups;
 }
@@ -272,7 +275,7 @@ function groupByDepth(contours: P2[][]): Group[] {
  * Triangulate a polygon (CCW outer + CW holes) into flat triangles at height z.
  * up=true → normals +Z (top), up=false → normals −Z (bottom).
  */
-function faceTriangles(outer: P2[], holes: P2[][], z: number, up: boolean): Tri[] {
+export function faceTriangles(outer: P2[], holes: P2[][], z: number, up: boolean): Tri[] {
   const ccwOuter = asCCW(outer);
   const cwHoles = holes.map((h) => {
     const ccw = asCCW(h);
@@ -301,7 +304,7 @@ function faceTriangles(outer: P2[], holes: P2[][], z: number, up: boolean): Tri[
  * Vertical side wall along a polygon perimeter, from zBottom to zTop.
  * outward=true → normals point away from interior; false → into interior (cavity).
  */
-function wall(poly: P2[], zBottom: number, zTop: number, outward: boolean): Tri[] {
+export function wall(poly: P2[], zBottom: number, zTop: number, outward: boolean): Tri[] {
   const ccw = asCCW(poly);
   const tris: Tri[] = [];
   const n = ccw.length;
@@ -341,7 +344,24 @@ export function repairTJunctions(tris: Tri[]): Tri[] {
     if (id === undefined) { id = verts.length; verts.push([q(p[0]), q(p[1]), q(p[2])]); vmap.set(k, id); }
     return id;
   };
-  let triIds: [number, number, number][] = tris.map((t) => [canon(t[0]), canon(t[1]), canon(t[2])]);
+  const IX0 = (id: number) => [Math.round(verts[id][0]*Q), Math.round(verts[id][1]*Q), Math.round(verts[id][2]*Q)];
+  /**
+   * A triangle whose corners are collinear covers nothing, and earcut does hand
+   * them out when a polygon keeps a collinear vertex (Roboto's "Å" does). Left in,
+   * one is exactly a triangle (a, mid, b) with `mid` on the edge a→b — the split
+   * below would turn it into two triangles with a zero-length edge, and the mesh
+   * that was watertight going in would not be coming out.
+   */
+  const degenerate = (t: [number, number, number]) => {
+    if (t[0] === t[1] || t[1] === t[2] || t[0] === t[2]) return true;
+    const A = IX0(t[0]), B = IX0(t[1]), C = IX0(t[2]);
+    const ux = B[0]-A[0], uy = B[1]-A[1], uz = B[2]-A[2];
+    const vx = C[0]-A[0], vy = C[1]-A[1], vz = C[2]-A[2];
+    return (uy*vz - uz*vy) === 0 && (uz*vx - ux*vz) === 0 && (ux*vy - uy*vx) === 0;
+  };
+  let triIds: [number, number, number][] = tris
+    .map((t) => [canon(t[0]), canon(t[1]), canon(t[2])] as [number, number, number])
+    .filter((t) => !degenerate(t));
 
   const IX = verts.map((v) => [Math.round(v[0]*Q), Math.round(v[1]*Q), Math.round(v[2]*Q)]);
 
@@ -384,7 +404,8 @@ export function repairTJunctions(tris: Tri[]): Tri[] {
         if (inner.length) {
           const chain = [a, ...inner, b];
           for (let m = 0; m < chain.length - 1; m++) {
-            out.push([chain[m], chain[m + 1], c]);
+            const t: [number, number, number] = [chain[m], chain[m + 1], c];
+            if (!degenerate(t)) out.push(t);
           }
           split = true;
           changed = true;
@@ -400,7 +421,7 @@ export function repairTJunctions(tris: Tri[]): Tri[] {
 
 // ─── Circle helper ────────────────────────────────────────────────────────────
 
-function circle(cx: number, cy: number, r: number, steps = 64): P2[] {
+export function circle(cx: number, cy: number, r: number, steps = 64): P2[] {
   return Array.from({ length: steps }, (_, i) => {
     const t = (i / steps) * 2 * Math.PI;
     return { x: cx + r * Math.cos(t), y: cy + r * Math.sin(t) };
@@ -441,7 +462,7 @@ function topmostAtX(contours: P2[][], x: number): number | null {
 }
 
 /** Axis-aligned rectangle polygon (CCW), from any two opposite corners. */
-function rect(x0: number, y0: number, x1: number, y1: number): P2[] {
+export function rect(x0: number, y0: number, x1: number, y1: number): P2[] {
   const xa = Math.min(x0, x1), xb = Math.max(x0, x1);
   const ya = Math.min(y0, y1), yb = Math.max(y0, y1);
   return [{ x: xa, y: ya }, { x: xb, y: ya }, { x: xb, y: yb }, { x: xa, y: yb }];

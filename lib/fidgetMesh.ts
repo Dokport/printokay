@@ -1,0 +1,348 @@
+/**
+ * Isomorphic fidget-clicker geometry (no Node APIs — server and browser alike).
+ *
+ * Everything is generated: a box, a lid that doubles as the MX switch plate, and one
+ * cap per switch with the customer's text as a flush two-colour inlay. Real Cherry-MX
+ * switches clip into the lid; nothing else is bought in.
+ *
+ * Solids are built as LAYERED PRISMS: a stack of z-ranges, each with its own 2D
+ * cross-section. Where the section changes, the difference between the two sections
+ * becomes a horizontal face (up where material ends, down where it begins). Every
+ * vertical edge is shared by exactly two triangles, so each solid is a single
+ * watertight manifold — no booleans in 3D, only clipper in 2D.
+ *
+ * Caps are modelled upright and then turned over, because they print top-down: the
+ * top face lands on the bed for a glass finish, the text inlay and its surround are
+ * the first layers side by side, and the stem prints as a clean vertical hole.
+ */
+import ClipperLib from "clipper-lib";
+import type { Point } from "./textpaths";
+import {
+  cleanUnion, faceTriangles, wall, groupByDepth, circle, rect, repairTJunctions,
+  type Tri, type Group,
+} from "./keyringMesh";
+import { MAX_CAP_CHARS, normalizeLabels, type FidgetConfig } from "./fidget";
+
+type P2 = Point;
+
+// ─── Cherry MX plate-mount standard ───────────────────────────────────────────
+export const PITCH_MM   = 19.05; // switch centre to centre
+export const CUTOUT_MM  = 14.0;  // square plate opening
+export const PLATE_T_MM = 1.5;   // plate thickness the switch clips grip
+
+// ─── Cap ──────────────────────────────────────────────────────────────────────
+export const CAP_W_MM     = 18.0;
+export const CAP_H_MM     = 8.0;
+const CAP_R_MM            = 2.0;  // corner radius
+const CAP_WALL_MM         = 1.2;
+const CAP_TOP_T_MM        = 2.2;  // solid top, inlay included
+export const INLAY_T_MM   = 0.8;  // depth of the text inlay
+/** Where the text may go on the cap top: comfortably inside the corner radii. */
+const TEXT_BOX_W_MM = 13.0, TEXT_BOX_H_MM = 9.0;
+/**
+ * Below this the inlay's colour boundary is thinner than a nozzle and the letters
+ * bleed into the cap. Flush inlay has no walls, so it prints smaller than the
+ * keyring's raised text — but not smaller than this.
+ */
+export const MIN_INLAY_CAP_HEIGHT_MM = 2.5;
+
+// ─── Stem: female cross for a standard MX stem ────────────────────────────────
+const STEM_BOSS_R_MM = 2.8;   // Ø5.6 boss under the cap top
+const STEM_DEPTH_MM  = 3.8;   // how far the cross reaches up into the boss
+const CROSS_LEN_MM   = 4.15;  // cross arm length, tip to tip
+/**
+ * Width of the cross slot — the one dimension that decides whether a cap grips.
+ *
+ * A Cherry stem's cross is about 1.17mm wide, so the socket is cut wider to leave
+ * room. How much wider is a property of the PRINTER, not the switch: a slot this
+ * size closes up by a couple of tenths on an FDM machine, and by different amounts
+ * depending on filament and flow. It is settable so it can be dialled in from a
+ * test print rather than guessed — see buildFidgetTolerancePlate.
+ */
+export const DEFAULT_CROSS_W_MM = 1.35;
+
+// ─── Box ──────────────────────────────────────────────────────────────────────
+const BOX_WALL_MM      = 2.0;
+const BOX_R_MM         = 3.0;
+const FLOOR_T_MM       = 2.0;
+const CAVITY_H_MM      = 12.0; // switch body 8.3 + pins, below the plate
+const CAVITY_MARGIN_MM = 1.0;  // cavity beyond the outermost switch pitch cell
+const RIM_STEP_MM      = 1.0;  // the lid sits in a recess this deep into the wall
+const LID_CLEARANCE_MM = 0.15;
+
+const SCALE = 1000;
+type IPt = { X: number; Y: number };
+const toC = (poly: P2[]): IPt[] => poly.map((p) => ({ X: Math.round(p.x * SCALE), Y: Math.round(p.y * SCALE) }));
+const fromC = (poly: IPt[]): P2[] => poly.map((p) => ({ x: p.X / SCALE, y: p.Y / SCALE }));
+
+/** Boolean on contour sets. Result is clean, disjoint, orientation-normalised. */
+function clip(
+  a: P2[][], b: P2[][],
+  op: "union" | "difference" | "intersection"
+): P2[][] {
+  const c = new ClipperLib.Clipper();
+  c.AddPaths(a.filter((p) => p.length >= 3).map(toC), ClipperLib.PolyType.ptSubject, true);
+  c.AddPaths(b.filter((p) => p.length >= 3).map(toC), ClipperLib.PolyType.ptClip, true);
+  const out: IPt[][] = [];
+  const type = op === "union" ? ClipperLib.ClipType.ctUnion
+    : op === "difference" ? ClipperLib.ClipType.ctDifference
+    : ClipperLib.ClipType.ctIntersection;
+  c.Execute(type, out, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+  return out.filter((p) => p.length >= 3).map(fromC);
+}
+
+export function roundedRect(cx: number, cy: number, w: number, h: number, r: number, steps = 8): P2[] {
+  const hw = w / 2, hh = h / 2;
+  const rr = Math.min(r, hw, hh);
+  const pts: P2[] = [];
+  const corner = (ox: number, oy: number, a0: number) => {
+    for (let i = 0; i <= steps; i++) {
+      const a = a0 + (i / steps) * (Math.PI / 2);
+      pts.push({ x: cx + ox + rr * Math.cos(a), y: cy + oy + rr * Math.sin(a) });
+    }
+  };
+  corner(hw - rr, hh - rr, 0);
+  corner(-hw + rr, hh - rr, Math.PI / 2);
+  corner(-hw + rr, -hh + rr, Math.PI);
+  corner(hw - rr, -hh + rr, 1.5 * Math.PI);
+  return pts;
+}
+
+/** The MX cross, as a single polygon (two rectangles unioned). */
+function crossPolygon(cx: number, cy: number, crossW: number): P2[][] {
+  const l = CROSS_LEN_MM / 2, w = crossW / 2;
+  return clip([rect(cx - l, cy - w, cx + l, cy + w)], [rect(cx - w, cy - l, cx + w, cy + l)], "union");
+}
+
+// ─── Layered prism ────────────────────────────────────────────────────────────
+
+type Layer = { z0: number; z1: number; region: P2[][] };
+
+/**
+ * A watertight solid from a stack of cross-sections. Each layer's region is any set
+ * of contours (clipper works out outers and holes). Faces are only emitted where
+ * material actually starts or stops, so a section that continues unchanged into
+ * the next layer produces no internal face.
+ *
+ * Every layer is resolved into canonical groups exactly ONCE, and those same
+ * polygons make both its walls and its own faces. Running a region through clipper
+ * a second time can move a vertex by a micron or drop a collinear one, and a wall
+ * and a face that disagree by that much are not a manifold. Only the transitions
+ * between layers need a fresh clip; what that leaves behind are T-junctions on
+ * shared edges, which the repair closes.
+ */
+function layeredPrism(layers: Layer[]): Tri[] {
+  const tris: Tri[] = [];
+  const canonical = layers.map((l) => groupByDepth(cleanUnion(l.region)));
+  const polysOf = (groups: Group[]): P2[][] => groups.flatMap((g) => [g.outer, ...g.holes]);
+  const emit = (groups: Group[], z: number, up: boolean) => {
+    for (const g of groups) tris.push(...faceTriangles(g.outer, g.holes, z, up));
+  };
+
+  emit(canonical[0], layers[0].z0, false);
+  layers.forEach((layer, i) => {
+    if (i > 0) {
+      const here = polysOf(canonical[i]), below = polysOf(canonical[i - 1]);
+      // Material that begins here faces down; material that ended below faces up.
+      emit(groupByDepth(clip(here, below, "difference")), layer.z0, false);
+      emit(groupByDepth(clip(below, here, "difference")), layer.z0, true);
+    }
+    for (const g of canonical[i]) {
+      tris.push(...wall(g.outer, layer.z0, layer.z1, true));
+      for (const h of g.holes) tris.push(...wall(h, layer.z0, layer.z1, false));
+    }
+  });
+  emit(canonical[canonical.length - 1], layers[layers.length - 1].z1, true);
+
+  // Everything came off clipper's 1µm grid; pin it there so equal points are equal.
+  const snap = (v: number) => Math.round(v * 1000) / 1000;
+  return repairTJunctions(
+    tris.map(([a, b, c]) => [
+      [snap(a[0]), snap(a[1]), snap(a[2])],
+      [snap(b[0]), snap(b[1]), snap(b[2])],
+      [snap(c[0]), snap(c[1]), snap(c[2])],
+    ])
+  );
+}
+
+/**
+ * Turn a solid upside down for printing: a half turn about the X axis, so the top
+ * lands on the bed.
+ *
+ * It has to be a ROTATION, not a mirror. Mirroring in z (z → h − z) looked the same
+ * on screen but reverses handedness, and the customer's name came out mirrored the
+ * moment the printed cap was turned back over. A rotation keeps handedness, so no
+ * winding fix is needed either.
+ */
+function upsideDown(tris: Tri[], height: number): Tri[] {
+  return tris.map(([a, b, c]) => [
+    [a[0], -a[1], height - a[2]],
+    [b[0], -b[1], height - b[2]],
+    [c[0], -c[1], height - c[2]],
+  ]);
+}
+
+// ─── Public shape ─────────────────────────────────────────────────────────────
+
+export type FidgetRole = "box" | "cap" | "text";
+export type FidgetPart = { name: string; role: FidgetRole; tris: Tri[] };
+export type FidgetObject = {
+  name: string;
+  parts: FidgetPart[];
+  /** Footprint on the bed, for laying objects out. */
+  size: { w: number; h: number; z: number };
+};
+export type FidgetMesh = {
+  objects: FidgetObject[];
+  /** Achieved letter height per cap, row-major; null for a blank cap. */
+  capHeightsMm: (number | null)[];
+  /** Outer box dimensions, for the read-out. */
+  boxMm: { w: number; h: number; z: number };
+};
+
+/** Glyph outlines for a label at a given em size, centred on (0,0). Supplied by the caller. */
+export type GlyphSource = (text: string, fontSizeMm: number) => P2[][];
+
+/** Switch centre in the lid's coordinate frame, row-major from the top-left. */
+export function switchCentre(cfg: Pick<FidgetConfig, "cols" | "rows">, index: number): P2 {
+  const c = index % cfg.cols, r = Math.floor(index / cfg.cols);
+  return {
+    x: (c - (cfg.cols - 1) / 2) * PITCH_MM,
+    y: ((cfg.rows - 1) / 2 - r) * PITCH_MM,
+  };
+}
+
+function bbox(contours: P2[][]) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const c of contours) for (const p of c) {
+    if (p.x < x0) x0 = p.x; if (p.x > x1) x1 = p.x;
+    if (p.y < y0) y0 = p.y; if (p.y > y1) y1 = p.y;
+  }
+  return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
+ * The text inlay for one cap: glyphs scaled to fill the text box, centred. Returns
+ * the contours and the letter height actually achieved (cap height of the font,
+ * which for Roboto Bold is 0.711 of the em).
+ */
+function capInlay(glyphs: GlyphSource, label: string): { region: P2[][]; capHeightMm: number } | null {
+  const text = label.trim().slice(0, MAX_CAP_CHARS);
+  if (!text) return null;
+  const em = 10;
+  const raw = glyphs(text, em);
+  if (!raw.length) return null;
+  const b = bbox(raw);
+  if (!(b.w > 0) || !(b.h > 0)) return null;
+  const s = Math.min(TEXT_BOX_W_MM / b.w, TEXT_BOX_H_MM / b.h);
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+  const region = raw.map((c) => c.map((p) => ({ x: (p.x - cx) * s, y: (p.y - cy) * s })));
+  return { region: cleanUnion(region), capHeightMm: em * 0.711 * s };
+}
+
+export function buildFidgetMesh(
+  cfg: FidgetConfig,
+  glyphs: GlyphSource,
+  crossW = DEFAULT_CROSS_W_MM
+): FidgetMesh {
+  const labels = normalizeLabels(cfg);
+  const n = cfg.cols * cfg.rows;
+
+  // ── Footprints ──
+  const cavityW = cfg.cols * PITCH_MM + 2 * CAVITY_MARGIN_MM;
+  const cavityH = cfg.rows * PITCH_MM + 2 * CAVITY_MARGIN_MM;
+  const boxW = cavityW + 2 * BOX_WALL_MM, boxH = cavityH + 2 * BOX_WALL_MM;
+  const rimW = cavityW + 2 * RIM_STEP_MM, rimH = cavityH + 2 * RIM_STEP_MM;
+  const lidW = rimW - 2 * LID_CLEARANCE_MM, lidH = rimH - 2 * LID_CLEARANCE_MM;
+
+  const outer  = [roundedRect(0, 0, boxW, boxH, BOX_R_MM)];
+  const cavity = [roundedRect(0, 0, cavityW, cavityH, BOX_R_MM - BOX_WALL_MM)];
+  const rim    = [roundedRect(0, 0, rimW, rimH, BOX_R_MM - BOX_WALL_MM + RIM_STEP_MM)];
+  const lid    = [roundedRect(0, 0, lidW, lidH, BOX_R_MM - BOX_WALL_MM + RIM_STEP_MM - LID_CLEARANCE_MM)];
+
+  // ── Box: floor, walls, then a thinner rim the lid drops into ──
+  const zWallTop = FLOOR_T_MM + CAVITY_H_MM;
+  const boxZ = zWallTop + PLATE_T_MM;
+  const box = layeredPrism([
+    { z0: 0,         z1: FLOOR_T_MM, region: outer },
+    { z0: FLOOR_T_MM, z1: zWallTop,  region: clip(outer, cavity, "difference") },
+    { z0: zWallTop,  z1: boxZ,       region: clip(outer, rim, "difference") },
+  ]);
+
+  // ── Lid = switch plate ──
+  const cutouts: P2[][] = [];
+  for (let i = 0; i < n; i++) {
+    const c = switchCentre(cfg, i);
+    cutouts.push(rect(c.x - CUTOUT_MM / 2, c.y - CUTOUT_MM / 2, c.x + CUTOUT_MM / 2, c.y + CUTOUT_MM / 2));
+  }
+  const lidTris = layeredPrism([{ z0: 0, z1: PLATE_T_MM, region: clip(lid, cutouts, "difference") }]);
+
+  const objects: FidgetObject[] = [
+    { name: "Kasse", parts: [{ name: "Kasse", role: "box", tris: box }], size: { w: boxW, h: boxH, z: boxZ } },
+    { name: "Låg",   parts: [{ name: "Låg",   role: "box", tris: lidTris }], size: { w: lidW, h: lidH, z: PLATE_T_MM } },
+  ];
+
+  // ── Caps ──
+  const capOuter = [roundedRect(0, 0, CAP_W_MM, CAP_W_MM, CAP_R_MM)];
+  const capInner = [roundedRect(0, 0, CAP_W_MM - 2 * CAP_WALL_MM, CAP_W_MM - 2 * CAP_WALL_MM, Math.max(0.5, CAP_R_MM - CAP_WALL_MM))];
+  const skirt = clip(capOuter, capInner, "difference");
+  const boss = clip([circle(0, 0, STEM_BOSS_R_MM, 48)], crossPolygon(0, 0, crossW), "difference");
+  const zCeiling = CAP_H_MM - CAP_TOP_T_MM;
+  const zInlay = CAP_H_MM - INLAY_T_MM;
+
+  const capHeightsMm: (number | null)[] = [];
+  for (let i = 0; i < n; i++) {
+    const inlay = capInlay(glyphs, labels[i]);
+    capHeightsMm.push(inlay?.capHeightMm ?? null);
+    const topRegion = inlay ? clip(capOuter, inlay.region, "difference") : capOuter;
+
+    const body = layeredPrism([
+      { z0: 0,                          z1: zCeiling - STEM_DEPTH_MM, region: skirt },
+      { z0: zCeiling - STEM_DEPTH_MM,   z1: zCeiling,                 region: clip(skirt, boss, "union") },
+      { z0: zCeiling,                   z1: zInlay,                   region: capOuter },
+      { z0: zInlay,                     z1: CAP_H_MM,                 region: topRegion },
+    ]);
+    const parts: FidgetPart[] = [{ name: `Knap ${i + 1}`, role: "cap", tris: upsideDown(body, CAP_H_MM) }];
+    if (inlay) {
+      const text = layeredPrism([{ z0: zInlay, z1: CAP_H_MM, region: inlay.region }]);
+      parts.push({ name: `Tekst ${i + 1}`, role: "text", tris: upsideDown(text, CAP_H_MM) });
+    }
+    objects.push({
+      name: labels[i] ? `Knap ${i + 1} "${labels[i]}"` : `Knap ${i + 1}`,
+      parts,
+      size: { w: CAP_W_MM, h: CAP_W_MM, z: CAP_H_MM },
+    });
+  }
+
+  return { objects, capHeightsMm, boxMm: { w: boxW, h: boxH, z: boxZ } };
+}
+
+/**
+ * A row of caps with the cross slot cut a little wider each time, for finding what
+ * this printer actually needs.
+ *
+ * There are no measurements to work from and none coming, so the fit is settled the
+ * only way that is really reliable anyway: print the row, push each cap onto a
+ * switch, and keep the width of the first one that holds without force.
+ */
+export function buildFidgetTolerancePlate(
+  glyphs: GlyphSource,
+  widths: number[] = [1.25, 1.35, 1.45, 1.55]
+): { objects: FidgetObject[]; widths: number[] } {
+  const objects = widths.map((w) => {
+    // Label each cap with its own width, so a cap that fits can be identified after
+    // it has been taken off the plate.
+    const label = w.toFixed(2).replace("0.", ".").slice(-3);
+    const one = buildFidgetMesh(
+      {
+        cols: 1, rows: 1, labels: [label],
+        boxFilamentId: "", capFilamentId: "", textFilamentId: "",
+      },
+      glyphs,
+      w
+    );
+    const cap = one.objects[2];
+    return { ...cap, name: `Knap ${w.toFixed(2)} mm` };
+  });
+  return { objects, widths };
+}
