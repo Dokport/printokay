@@ -141,3 +141,63 @@ export function SplitRingArt() {
     </>
   );
 }
+
+/**
+ * The whole staged arrangement: a split ring threaded through a product's hole,
+ * with the key hanging off it.
+ *
+ * `hole` is the hole to thread, `centre` the middle of the body it belongs to — the
+ * chain falls away from the body, so the staging stays sensible whether the hole is
+ * on the top, the side, or on a lug of its own. `z` is the height the wire runs at;
+ * put it at mid-thickness so the wire passes THROUGH the hole, dipping behind on one
+ * side and rising in front on the other, rather than resting on top of the material.
+ */
+export function KeyOnRing({
+  hole,
+  centre,
+  z,
+}: {
+  hole: { cx: number; cy: number; r: number };
+  centre: { x: number; y: number };
+  z: number;
+}) {
+  const dx = hole.cx - centre.x, dy = hole.cy - centre.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const angle = Math.atan2(dy / len, dx / len);
+
+  // Thread both holes onto the WIRE'S CENTRELINE, not its inner edge — otherwise the
+  // ring runs through the surrounding material instead of through the hole.
+  const WIRE_MID = SPLIT_RING_R - SPLIT_RING_WIRE / 2;
+
+  // Tilting the ring only leaves the two points ON the tilt axis in the original
+  // plane, so the product's hole and the key's hole must be diametrically opposite
+  // and the axis must run through both. They need NOT line up with the product
+  // though: let the whole ring-and-key chain fall away at an angle, and the key keeps
+  // its relaxed pose while both holes stay exactly on the wire.
+  const SPLAY = 0.42;
+  const keyAngle = angle + SPLAY;
+  const kux = Math.cos(keyAngle), kuy = Math.sin(keyAngle);
+  const rx = hole.cx + kux * WIRE_MID;      // ring centre, one wire-radius along the chain
+  const ry = hole.cy + kuy * WIRE_MID;
+  const kx = hole.cx + kux * 2 * WIRE_MID;  // far point of the wire == the key's hole
+  const ky = hole.cy + kuy * 2 * WIRE_MID;
+
+  // Tilt the ring 45° about the chain axis. Points on that axis keep their height, so
+  // both holes still meet the wire exactly, while the ring reads as standing up out of
+  // the hole instead of lying flat like a drawn circle.
+  const ringQuat = useMemo(
+    () => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(kux, kuy, 0).normalize(), Math.PI / 4),
+    [kux, kuy]
+  );
+
+  return (
+    <group>
+      <group position={[rx, ry, z]} quaternion={ringQuat}>
+        <SplitRingArt />
+      </group>
+      <group position={[kx, ky, z]} rotation={[0, 0, keyAngle]}>
+        <KeyArt />
+      </group>
+    </group>
+  );
+}

@@ -19,7 +19,7 @@ import {
 } from "@/lib/fidgetMesh";
 import { FIDGET_FONT, normalizeLabels, type FidgetConfig } from "@/lib/fidget";
 import type { Tri } from "@/lib/keyringMesh";
-import { KeyArt, KEY_BOW_R, KEY_CENTRE_X } from "@/components/ScaleKeyArt";
+import { KeyArt, KeyOnRing, KEY_BOW_R, KEY_CENTRE_X } from "@/components/ScaleKeyArt";
 
 function trisToGeometry(tris: Tri[]): THREE.BufferGeometry {
   const positions = new Float32Array(tris.length * 9);
@@ -121,7 +121,13 @@ export default function FidgetPreview3D({
     push(box, place.box, true);
     push(lid, place.lid);
     caps.forEach((cap, i) => push(cap, place.caps[i]));
-    return { pieces: out, centreX: (minX + maxX) / 2, frontY: minY };
+    return {
+      pieces: out,
+      centreX: (minX + maxX) / 2,
+      frontY: minY,
+      eye: built.eyeMm,
+      boxZ: built.boxMm.z,
+    };
   }, [built, cols, rows]);
 
   const colourOf: Record<FidgetRole, string> = { box: boxColor, cap: capColor, text: textColor };
@@ -151,14 +157,19 @@ export default function FidgetPreview3D({
               </mesh>
             ))}
             {/*
-              Lying flat on the same table the box stands on, in front of it and
-              clear of the eye — an outline beside the product, not a second product.
+              With an eye, the key hangs in it on a split ring, exactly as it does on
+              the keyrings. Without one there is nothing to hang it from, so it lies
+              flat on the same table the box stands on, in front of it and clear of
+              the caps. Either way it is an outline beside the product, not a second
+              product.
             */}
-            {showScale && (
+            {showScale && (scene.eye ? (
+              <KeyOnRing hole={scene.eye} centre={{ x: 0, y: 0 }} z={scene.boxZ / 2} />
+            ) : (
               <group position={[scene.centreX - KEY_CENTRE_X, scene.frontY - KEY_GAP_MM - KEY_BOW_R, 0]}>
                 <KeyArt />
               </group>
-            )}
+            ))}
           </group>
         </Bounds>
         <OrbitControls makeDefault enablePan={false} enableDamping minDistance={30} maxDistance={500} />

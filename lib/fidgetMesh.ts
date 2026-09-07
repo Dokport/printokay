@@ -247,6 +247,11 @@ export type FidgetMesh = {
   capHeightsMm: (number | null)[];
   /** Outer box dimensions, for the read-out. */
   boxMm: { w: number; h: number; z: number };
+  /**
+   * The keyring eye's hole in the box's own frame, or null when the box has no eye.
+   * The bore runs the full height of the box, so it is a position in XY only.
+   */
+  eyeMm: { cx: number; cy: number; r: number } | null;
 };
 
 /** Glyph outlines for a label at a given em size, centred on (0,0). Supplied by the caller. */
@@ -448,6 +453,7 @@ export function buildFidgetMesh(
     objects,
     capHeightsMm,
     boxMm: { w: boxW + (cfg.keyring ? EYE_PROTRUSION_MM : 0), h: boxH, z: boxZ },
+    eyeMm: cfg.keyring ? { cx: eyeCX, cy: 0, r: EYE_HOLE_R_MM } : null,
   };
 }
 

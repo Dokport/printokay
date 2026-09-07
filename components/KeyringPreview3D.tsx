@@ -20,7 +20,7 @@ import { contoursFromFont, type OpenTypeFontLike } from "@/lib/textpaths";
 import { buildKeyringMesh, TOTAL_HEIGHT_MM, type Tri } from "@/lib/keyringMesh";
 import { calcFontSize, type KeyringConfig, type KeyringSizeOption } from "@/lib/keyring";
 import { splitTextLines } from "@/lib/textpaths";
-import { KeyArt, SplitRingArt, SPLIT_RING_R, SPLIT_RING_WIRE } from "@/components/ScaleKeyArt";
+import { KeyOnRing } from "@/components/ScaleKeyArt";
 
 
 
@@ -58,9 +58,9 @@ const cm = (mm: number) => (mm / 10).toFixed(1).replace(".", ",");
 
 /**
  * Size reference, staged like a product shot: a split ring threaded through the
- * keyring's own hole, with an ordinary house key hanging off it. Both are drawn as
- * pure OUTLINES — no thickness, no fill, no shading — so they read as a diagram
- * around the product rather than as extra products. Off by default ("Tjek størrelse").
+ * keyring's own hole, with an ordinary house key hanging off it. Drawn as pure
+ * OUTLINES so it reads as a diagram around the product rather than extra products.
+ * Off by default ("Tjek størrelse").
  */
 function ScaleKey({
   ring,
@@ -69,56 +69,12 @@ function ScaleKey({
   ring: ReturnType<typeof bboxOf>;
   hole: { cx: number; cy: number; r: number };
 }) {
-  // Everything hangs off the plate's hole, in the direction pointing away from the
-  // plate — so the arrangement stays sensible whether the hole is on top or the side.
-  const cx = (ring.minX + ring.maxX) / 2;
-  const cy = (ring.minY + ring.maxY) / 2;
-  const dx = hole.cx - cx, dy = hole.cy - cy;
-  const len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len, uy = dy / len;
-  const angle = Math.atan2(uy, ux);
-
-  // Thread both holes onto the WIRE'S CENTRELINE, not its inner edge — otherwise the
-  // ring runs through the surrounding metal instead of through the hole.
-  const WIRE_MID = SPLIT_RING_R - SPLIT_RING_WIRE / 2;
-
-  // Tilting the ring only leaves the two points ON the tilt axis in the original
-  // plane, so the plate's hole and the key's hole must be diametrically opposite and
-  // the axis must run through both. They need NOT line up with the plate though: let
-  // the whole ring-and-key chain fall away at an angle, and the key keeps its relaxed
-  // pose while both holes stay exactly on the wire.
-  const SPLAY = 0.42;
-  const keyAngle = angle + SPLAY;
-  const kux = Math.cos(keyAngle), kuy = Math.sin(keyAngle);
-  const rx = hole.cx + kux * WIRE_MID;      // ring centre, one wire-radius along the chain
-  const ry = hole.cy + kuy * WIRE_MID;
-  const kx = hole.cx + kux * 2 * WIRE_MID;  // far point of the wire == the key's hole
-  const ky = hole.cy + kuy * 2 * WIRE_MID;
-
-  // Tilt the ring 45° about the chain axis. Points on that axis keep their height, so
-  // both holes still meet the wire exactly, while the ring reads as standing up out of
-  // the hole instead of lying flat like a drawn circle.
-  const ringQuat = useMemo(
-    () => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(kux, kuy, 0).normalize(), Math.PI / 4),
-    [kux, kuy]
-  );
-
-  // Sit the hardware at mid-plate height: the wire then runs THROUGH the tag's hole —
-  // dipping behind the plate on one side and rising in front on the other — rather
-  // than resting on top of it and cutting across the metal.
-  const z = TOTAL_HEIGHT_MM / 2;
-
   return (
-    <group>
-      {/* Split ring — opaque annulus under its two wire edges */}
-      <group position={[rx, ry, z]} quaternion={ringQuat}>
-        <SplitRingArt />
-      </group>
-      {/* Key, threaded on the ring by its bow hole and pointing outwards */}
-      <group position={[kx, ky, z]} rotation={[0, 0, keyAngle]}>
-        <KeyArt />
-      </group>
-    </group>
+    <KeyOnRing
+      hole={hole}
+      centre={{ x: (ring.minX + ring.maxX) / 2, y: (ring.minY + ring.maxY) / 2 }}
+      z={TOTAL_HEIGHT_MM / 2}
+    />
   );
 }
 
