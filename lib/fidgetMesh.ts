@@ -88,6 +88,22 @@ const RIM_STEP_MM      = 1.0;  // the lid sits in a recess this deep into the wa
  * than an added stalk, which is what a lug snaps off at.
  */
 const EYE_HOLE_R_MM     = 2.5;
+/**
+ * Material left between the hole and the lid recess — the thinnest wall anywhere in
+ * the eye, and the one a keyring pulls straight at.
+ *
+ * The hole is sunk into the box so most of what surrounds it is box wall rather than
+ * an added stalk; that is what a lug snaps off at. How deep it may go is set from
+ * this end: it has to leave a wall a slicer will actually fill (two extrusions, not
+ * a hairline), and it must not reach the recess the lid drops into — a hole that
+ * does opens into the box interior, and where the circle runs nearly tangent to the
+ * recess or cavity outline the two disagree by a couple of microns and leave slivers
+ * along the layer boundary with a face and no wall. Sunk flush, the hole landed
+ * EXACTLY on the cavity edge, which is the worst case for that.
+ *
+ * Every 0.1mm here costs 0.1mm of extra lug sticking out, so it is not free.
+ */
+const EYE_HOLE_CLEAR_MM = 1.2;
 const EYE_WALL_MM       = 3.0;   // material around the hole
 const EYE_PROTRUSION_MM = 6.0;   // how far the eye stands out past the box
 const EYE_BLEND_MM      = 2.5;   // fillet where the eye meets the box
@@ -339,7 +355,13 @@ export function buildFidgetMesh(
 
   // ── Optional keyring eye, off the left end ──
   const eyeR = EYE_HOLE_R_MM + EYE_WALL_MM;
-  const eyeCX = -boxW / 2 - EYE_PROTRUSION_MM + eyeR;
+  // Sunk as deep as the lid recess allows, and no deeper — see EYE_HOLE_CLEAR_MM.
+  const eyeCX = Math.min(
+    -boxW / 2 - EYE_PROTRUSION_MM + eyeR,
+    -boxW / 2 + BOX_WALL_MM - RIM_STEP_MM - EYE_HOLE_CLEAR_MM - EYE_HOLE_R_MM
+  );
+  /** What the lug actually stands out by, once the hole has been held back. */
+  const eyeOut = cfg.keyring ? -(eyeCX - eyeR) - boxW / 2 : 0;
 
   /**
    * Only the lump that hangs OUTSIDE the box, filleted where it meets it.
@@ -384,10 +406,17 @@ export function buildFidgetMesh(
   // that have a face and no wall. Full height removes the boundary instead of trying
   // to clean up after it — and a lug as tall as the box is what carries a keyring
   // anyway.
+  //
+  // The eye is added to the SOLID outline and the openings are cut afterwards. The
+  // other way round — cut first, then union the eye — lets the eye's overlap fill
+  // the lid recess back in, and the lid then will not seat: the lug reaches
+  // EYE_OVERLAP_MM into the box while the recess starts BOX_WALL_MM - RIM_STEP_MM
+  // in, so it stole 1.8mm of the pocket. Cutting last also keeps the eye out of the
+  // cavity, where it was pinching the outermost switch.
   const box = layeredPrism([
     { z0: 0,          z1: FLOOR_T_MM, region: withEye(outer) },
-    { z0: FLOOR_T_MM, z1: zWallTop,   region: withEye(clip(outer, cavity, "difference")) },
-    { z0: zWallTop,   z1: boxZ,       region: withEye(clip(outer, rim, "difference")) },
+    { z0: FLOOR_T_MM, z1: zWallTop,   region: clip(withEye(outer), cavity, "difference") },
+    { z0: zWallTop,   z1: boxZ,       region: clip(withEye(outer), rim, "difference") },
   ]);
 
   // ── Lid = switch plate ──
@@ -411,7 +440,7 @@ export function buildFidgetMesh(
     {
       name: "Kasse",
       parts: [{ name: "Kasse", role: "box", tris: box }],
-      size: { w: boxW + (cfg.keyring ? EYE_PROTRUSION_MM : 0), h: boxH, z: boxZ },
+      size: { w: boxW + eyeOut, h: boxH, z: boxZ },
     },
     { name: "Låg",   parts: [{ name: "Låg",   role: "box", tris: lidTris }], size: { w: lidW, h: lidH, z: bezelTop } },
   ];
@@ -452,7 +481,7 @@ export function buildFidgetMesh(
   return {
     objects,
     capHeightsMm,
-    boxMm: { w: boxW + (cfg.keyring ? EYE_PROTRUSION_MM : 0), h: boxH, z: boxZ },
+    boxMm: { w: boxW + eyeOut, h: boxH, z: boxZ },
     eyeMm: cfg.keyring ? { cx: eyeCX, cy: 0, r: EYE_HOLE_R_MM } : null,
   };
 }
