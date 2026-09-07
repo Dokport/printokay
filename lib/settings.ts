@@ -83,7 +83,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
     ],
   },
   fidget: {
-    enabled: true,
+    enabled: false,
     basePrice: 9900,
     pricePerSwitch: 2500,
     switchLabel: "Klik-switch",

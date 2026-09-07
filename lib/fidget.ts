@@ -40,6 +40,13 @@ export type FidgetConfig = {
 };
 
 export type FidgetSettings = {
+  /**
+   * Whether the shop offers the product at all.
+   *
+   * Off by default: a made-to-order product that has not been printed and fitted
+   * yet should not be orderable, and a new field arriving in the code must not
+   * quietly put something on sale.
+   */
   enabled: boolean;
   basePrice: number;         // øre — box, lid, assembly
   pricePerSwitch: number;    // øre — switch, cap, print
@@ -62,7 +69,7 @@ export type FidgetSettings = {
 };
 
 export const DEFAULT_FIDGET_SETTINGS: FidgetSettings = {
-  enabled: true,
+  enabled: false,
   basePrice: 9900,
   pricePerSwitch: 2500,
   switchLabel: "Klik-switch",

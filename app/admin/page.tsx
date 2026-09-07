@@ -1543,7 +1543,40 @@ export default function AdminPage() {
 
           {/* Fidget clicker */}
           <div className="bg-white rounded-2xl p-6 shadow-sm">
-            <h2 className="font-semibold text-gray-800 mb-4">🎛️ Fidget clicker</h2>
+            <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
+              <h2 className="font-semibold text-gray-800">🎛️ Fidget clicker</h2>
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings((st) => ({
+                    ...st,
+                    fidget: {
+                      ...(st.fidget ?? DEFAULT_FIDGET_SETTINGS),
+                      enabled: !(st.fidget?.enabled ?? DEFAULT_FIDGET_SETTINGS.enabled),
+                    },
+                  }))
+                }
+                className="inline-flex items-center gap-2 rounded-full border-2 px-4 py-1.5 text-sm font-semibold transition-all"
+                style={
+                  settings.fidget?.enabled
+                    ? { borderColor: "#16a34a", backgroundColor: "#f0fdf4", color: "#15803d" }
+                    : { borderColor: "#e5e7eb", backgroundColor: "#fff", color: "#6b7280" }
+                }
+              >
+                <span
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: settings.fidget?.enabled ? "#16a34a" : "#d1d5db" }}
+                />
+                {settings.fidget?.enabled ? "I shoppen" : "Skjult"}
+              </button>
+            </div>
+            {!settings.fidget?.enabled && (
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
+                Produktet vises ikke i shoppen og kan ikke bestilles. Testprint-panelet
+                i konfiguratoren virker stadig — gå til <strong>/?fidget</strong> mens
+                du er logget ind.
+              </p>
+            )}
             <p className="text-sm text-gray-500 mb-4">
               Prisen er en grundpris for kasse, låg og samling, plus et beløb pr.
               switch. Farverne er dem der kan bestilles i — pladen printes i tre

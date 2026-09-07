@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { Product } from "@/lib/products";
 import { SiteSettings } from "@/lib/settings";
 import ProductCard from "@/components/ProductCard";
+import { getAdminToken } from "@/lib/adminSession";
 
 // Load configurator lazily — pulls in three.js, only needed when tab is active.
 const loading = () => (
@@ -29,10 +30,31 @@ export default function ShopClient({ products, settings }: Props) {
   // can be linked to and reloaded without clicking through the shop. Done after
   // mount rather than in the initial state: the server has no location to read, and
   // disagreeing with it there breaks hydration.
+  /**
+   * Admin may open a switched-off configurator through its direct link, so a product
+   * can be test-printed before it goes on sale. The tab stays hidden for everyone,
+   * and the server still refuses to price the thing — this only reveals the designer.
+   */
+  const [adminPreview, setAdminPreview] = useState(false);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    if (q.has("noglering")) setActiveCategory(KEYRING_TAB);
-    else if (q.has("fidget")) setActiveCategory(FIDGET_TAB);
+    if (q.has("noglering")) { setActiveCategory(KEYRING_TAB); return; }
+    if (!q.has("fidget")) return;
+    if (settings.fidget?.enabled) { setActiveCategory(FIDGET_TAB); return; }
+
+    const token = getAdminToken();
+    if (!token) return;
+    let cancelled = false;
+    fetch("/api/admin-check", { headers: { "x-admin-token": token } })
+      .then((res) => {
+        if (cancelled || !res.ok) return;
+        setAdminPreview(true);
+        setActiveCategory(FIDGET_TAB);
+      })
+      .catch(() => { /* not admin — stays hidden */ });
+    return () => { cancelled = true; };
+    // settings arrive with the page and never change after mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Reset to shop view when header logo/Shop link is clicked while already on "/"
@@ -51,7 +73,10 @@ export default function ShopClient({ products, settings }: Props) {
       : products.filter((p) => p.category === activeCategory);
 
   const showKeyring = activeCategory === KEYRING_TAB;
-  const showFidget = activeCategory === FIDGET_TAB;
+  // A product that is switched off is not offered at all: no tab, and the deep
+  // link falls back to the shop rather than opening something unbuyable.
+  const fidgetOffered = settings.fidget?.enabled ?? false;
+  const showFidget = (fidgetOffered || adminPreview) && activeCategory === FIDGET_TAB;
   const showConfigurator = showKeyring || showFidget;
   const { primaryColor, accentColor } = settings;
 
@@ -145,17 +170,19 @@ export default function ShopClient({ products, settings }: Props) {
           Custom Nøglering
         </button>
 
-        <button
-          onClick={openFidget}
-          className="px-5 py-2 rounded-full font-medium transition-all border"
-          style={
-            showFidget
-              ? { backgroundColor: primaryColor, color: "#fff", borderColor: primaryColor }
-              : { backgroundColor: "#fff", color: primaryColor, borderColor: primaryColor }
-          }
-        >
-          Custom Fidget
-        </button>
+        {fidgetOffered && (
+          <button
+            onClick={openFidget}
+            className="px-5 py-2 rounded-full font-medium transition-all border"
+            style={
+              showFidget
+                ? { backgroundColor: primaryColor, color: "#fff", borderColor: primaryColor }
+                : { backgroundColor: "#fff", color: primaryColor, borderColor: primaryColor }
+            }
+          >
+            Custom Fidget
+          </button>
+        )}
       </div>
 
       {/* Content */}
@@ -179,7 +206,14 @@ export default function ShopClient({ products, settings }: Props) {
         <div ref={configRef} className="scroll-mt-24">
           <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
             <div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-1">Design din fidget clicker</h2>
+              <h2 className="text-2xl font-bold text-gray-800 mb-1">
+                Design din fidget clicker
+                {adminPreview && (
+                  <span className="ml-2 align-middle text-xs font-semibold uppercase tracking-wider rounded-full bg-amber-100 text-amber-700 px-2.5 py-1">
+                    Skjult for kunder
+                  </span>
+                )}
+              </h2>
               <p className="text-gray-500">
                 Vælg antal knapper, farver og hvad der står på hver — vi printer og samler den.
               </p>

@@ -51,6 +51,10 @@ export async function loadPricing(): Promise<Pricing> {
         return size ? calcPrice(size) : null;
       }
       if (item.fidgetData) {
+        const fidgetSettings = { ...DEFAULT_FIDGET_SETTINGS, ...(settings.fidget ?? {}) };
+        // Hiding the tab is cosmetic; this is the line that actually stops an
+        // order — a stale cart or a hand-built request goes through here too.
+        if (!fidgetSettings.enabled) return null;
         const { cols, rows } = item.fidgetData;
         // A grid outside what the shop sells isn't priced at all, so a hand-built
         // request for fifty switches is refused rather than quietly costed.
@@ -58,8 +62,7 @@ export async function loadPricing(): Promise<Pricing> {
           Number.isInteger(cols) && Number.isInteger(rows) &&
           cols >= 1 && cols <= MAX_COLS && rows >= 1 && rows <= MAX_ROWS;
         if (!sane) return null;
-        const fidget = { ...DEFAULT_FIDGET_SETTINGS, ...(settings.fidget ?? {}) };
-        return calcFidgetPrice({ cols, rows }, fidget);
+        return calcFidgetPrice({ cols, rows }, fidgetSettings);
       }
       const product = byId.get(item.product?.id);
       return product ? product.price : null;
