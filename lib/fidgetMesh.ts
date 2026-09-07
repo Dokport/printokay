@@ -109,6 +109,55 @@ const EYE_PROTRUSION_MM = 6.0;   // how far the eye stands out past the box
 const EYE_BLEND_MM      = 2.5;   // fillet where the eye meets the box
 const EYE_OVERLAP_MM    = 3.0;   // how far the lug reaches into the box, so the two merge
 const LID_CLEARANCE_MM = 0.15;
+
+// ─── Lit variant (test only) ──────────────────────────────────────────────────
+/**
+ * The box loses its floor and gains a battery door in the same recess trick the lid
+ * already uses at the top — the box becomes a tube with a rebate at each end.
+ *
+ * The cell does not need a bay of its own: the switches only reach SWITCH_BELOW_PLATE
+ * down into the cavity, so deepening the cavity leaves a clear layer underneath for
+ * a CR2032, its holder and the wiring. That costs height and no footprint at all,
+ * which is what makes it work at every grid size.
+ */
+const LIT_CAVITY_H_MM = 13.0;  // switch 7 + air 0.5 + cell, holder and wiring 5.5
+const DOOR_T_MM       = 1.6;
+/**
+ * The door drops in from BELOW, so unlike the lid it has gravity against it. It is
+ * held by two cantilever barbs that click above a lip running round the opening:
+ * the lip is the first layer of the box, so it prints straight onto the bed, and the
+ * barbs sit in the door's upper half so they clear the lip once seated.
+ */
+const DOOR_LIP_T_MM   = 0.6;   // height of the retaining lip
+const SNAP_BARB_MM    = 0.5;   // how far a barb stands out past the door body
+const SNAP_TAB_LEN_MM = 12.0;  // cantilever length, along the edge
+const SNAP_TAB_T_MM   = 1.2;   // tab width, measured inwards
+const SNAP_SLOT_MM    = 0.8;   // the slot that frees the tab to flex
+/**
+ * Bite out of the box's bottom edge, so a nail reaches the door to push it out.
+ * Square, not round: a circle crosses the lip and rim outlines — two lines half a
+ * millimetre apart — at a glancing angle, and the slivers that leaves at the layer
+ * boundary have a face and no wall. Straight sides cut both cleanly.
+ */
+const DOOR_NOTCH_W_MM = 7.0;
+const DOOR_NOTCH_D_MM = 3.5;
+
+/**
+ * Where the legend sits when it has to pass light.
+ *
+ * It cannot stay in the middle: the stem boss reaches up to the underside of the top
+ * there, and a letter cut through the top would cross the boss's circle — the two
+ * outlines then disagree by microns along that circle and the cap is no longer
+ * closed. It also should not stay in the middle, for the same reason real backlit
+ * keycaps do not: the LED sits at the switch's north end, so the legend belongs over
+ * it. Smaller than the unlit box, which is the price of lighting it.
+ *
+ * Negative Y here — the cap is turned over for printing, so this lands north on the
+ * finished cap.
+ */
+const LIT_TEXT_BOX_W_MM = 13.0;
+const LIT_TEXT_BOX_H_MM = 3.8;
+const LIT_TEXT_Y_MM     = -5.1;
 /**
  * How far a cap's skirt sits above the plate once it is on a switch. A Cherry MX
  * stands about 11.6mm proud of the plate and the cap swallows the top of that.
@@ -268,6 +317,11 @@ export type FidgetMesh = {
    * The bore runs the full height of the box, so it is a position in XY only.
    */
   eyeMm: { cx: number; cy: number; r: number } | null;
+  /**
+   * The battery door, on the lit variant only. Kept beside `objects` rather than in
+   * it so the [box, lid, ...caps] every caller destructures keeps meaning that.
+   */
+  door: FidgetObject | null;
 };
 
 /** Glyph outlines for a label at a given em size, centred on (0,0). Supplied by the caller. */
@@ -306,8 +360,12 @@ function bbox(contours: P2[][]) {
  */
 function capInlays(
   glyphs: GlyphSource,
-  labels: string[]
+  labels: string[],
+  lit = false
 ): { inlays: (P2[][] | null)[]; capHeightMm: number | null } {
+  const boxW = lit ? LIT_TEXT_BOX_W_MM : TEXT_BOX_W_MM;
+  const boxH = lit ? LIT_TEXT_BOX_H_MM : TEXT_BOX_H_MM;
+  const offsetY = lit ? LIT_TEXT_Y_MM : 0;
   const em = 10;
   const drawn = labels.map((label) => {
     const text = label.trim().slice(0, MAX_CAP_CHARS);
@@ -321,14 +379,15 @@ function capInlays(
   let scale = Infinity;
   for (const d of drawn) {
     if (!d) continue;
-    scale = Math.min(scale, TEXT_BOX_W_MM / d.b.w, TEXT_BOX_H_MM / d.b.h);
+    scale = Math.min(scale, boxW / d.b.w, boxH / d.b.h);
   }
   if (!Number.isFinite(scale)) return { inlays: labels.map(() => null), capHeightMm: null };
 
   const inlays = drawn.map((d) => {
     if (!d) return null;
     const cx = (d.b.x0 + d.b.x1) / 2, cy = (d.b.y0 + d.b.y1) / 2;
-    return cleanUnion(d.raw.map((c) => c.map((p) => ({ x: (p.x - cx) * scale, y: (p.y - cy) * scale }))));
+    return cleanUnion(d.raw.map((c) =>
+      c.map((p) => ({ x: (p.x - cx) * scale, y: (p.y - cy) * scale + offsetY }))));
   });
   return { inlays, capHeightMm: em * 0.711 * scale };
 }
@@ -352,6 +411,12 @@ export function buildFidgetMesh(
   const cavity = [roundedRect(0, 0, cavityW, cavityH, BOX_R_MM - BOX_WALL_MM)];
   const rim    = [roundedRect(0, 0, rimW, rimH, BOX_R_MM - BOX_WALL_MM + RIM_STEP_MM)];
   const lid    = [roundedRect(0, 0, lidW, lidH, BOX_R_MM - BOX_WALL_MM + RIM_STEP_MM - LID_CLEARANCE_MM)];
+  // The lip the door's barbs click above, and the door body that passes through it.
+  const rimR      = BOX_R_MM - BOX_WALL_MM + RIM_STEP_MM;
+  const lipOpening = [roundedRect(0, 0, rimW - 2 * SNAP_BARB_MM, rimH - 2 * SNAP_BARB_MM,
+                                  Math.max(0.5, rimR - SNAP_BARB_MM))];
+  const doorW = rimW - 2 * SNAP_BARB_MM - 2 * LID_CLEARANCE_MM;
+  const doorH = rimH - 2 * SNAP_BARB_MM - 2 * LID_CLEARANCE_MM;
 
   // ── Optional keyring eye, off the left end ──
   const eyeR = EYE_HOLE_R_MM + EYE_WALL_MM;
@@ -398,7 +463,8 @@ export function buildFidgetMesh(
   };
 
   // ── Box: floor, walls, then a thinner rim the lid drops into ──
-  const zWallTop = FLOOR_T_MM + CAVITY_H_MM;
+  const lit = !!cfg.lit;
+  const zWallTop = (lit ? DOOR_T_MM : FLOOR_T_MM) + (lit ? LIT_CAVITY_H_MM : CAVITY_H_MM);
   const boxZ = zWallTop + PLATE_T_MM;
   // The eye runs the FULL height of the box. Stopping it partway would put a layer
   // boundary right where its fillet runs tangentially back into the box wall, and two
@@ -413,11 +479,26 @@ export function buildFidgetMesh(
   // EYE_OVERLAP_MM into the box while the recess starts BOX_WALL_MM - RIM_STEP_MM
   // in, so it stole 1.8mm of the pocket. Cutting last also keeps the eye out of the
   // cavity, where it was pinching the outermost switch.
-  const box = layeredPrism([
-    { z0: 0,          z1: FLOOR_T_MM, region: withEye(outer) },
-    { z0: FLOOR_T_MM, z1: zWallTop,   region: clip(withEye(outer), cavity, "difference") },
-    { z0: zWallTop,   z1: boxZ,       region: clip(withEye(outer), rim, "difference") },
-  ]);
+  const solid = withEye(outer);
+  const notch = lit
+    ? [rect(-DOOR_NOTCH_W_MM / 2, -boxH / 2 - 1, DOOR_NOTCH_W_MM / 2, -boxH / 2 + DOOR_NOTCH_D_MM)]
+    : [];
+  /** Bottom two layers: an opening, and the bite that lets a nail reach the door. */
+  const bottom = (opening: P2[][]) =>
+    clip(clip(solid, opening, "difference"), notch, "difference");
+
+  const box = layeredPrism(lit
+    ? [
+        { z0: 0,             z1: DOOR_LIP_T_MM, region: bottom(lipOpening) },
+        { z0: DOOR_LIP_T_MM, z1: DOOR_T_MM,     region: bottom(rim) },
+        { z0: DOOR_T_MM,     z1: zWallTop,      region: clip(solid, cavity, "difference") },
+        { z0: zWallTop,      z1: boxZ,          region: clip(solid, rim, "difference") },
+      ]
+    : [
+        { z0: 0,          z1: FLOOR_T_MM, region: solid },
+        { z0: FLOOR_T_MM, z1: zWallTop,   region: clip(solid, cavity, "difference") },
+        { z0: zWallTop,   z1: boxZ,       region: clip(solid, rim, "difference") },
+      ]);
 
   // ── Lid = switch plate ──
   const cutouts: P2[][] = [];
@@ -436,6 +517,42 @@ export function buildFidgetMesh(
     { z0: PLATE_T_MM,  z1: bezelTop,   region: clip(lid, capWell, "difference") },
   ]);
 
+  // ── Battery door: a panel that clicks in from below ──
+  const door = ((): FidgetObject | null => {
+    if (!lit) return null;
+    const body = [roundedRect(0, 0, doorW, doorH,
+                              Math.max(0.5, rimR - SNAP_BARB_MM - LID_CLEARANCE_MM))];
+    // Each tab is freed by a slot down its inner side and across ONE end, so it is a
+    // cantilever rather than a beam held at both ends — a beam that short would not
+    // give the half millimetre it has to flex to get past the lip.
+    const tabs: P2[][] = [], slots: P2[][] = [];
+    for (const side of [-1, 1]) {
+      const xIn = side * (doorW / 2 - SNAP_TAB_T_MM);
+      const xOut = side * (doorW / 2 + SNAP_BARB_MM);
+      const xSlot = side * (doorW / 2 - SNAP_TAB_T_MM - SNAP_SLOT_MM);
+      const y0 = -SNAP_TAB_LEN_MM / 2, y1 = SNAP_TAB_LEN_MM / 2;
+      const span = (a: number, b: number) => [Math.min(a, b), Math.max(a, b)] as const;
+      const [tx0, tx1] = span(xIn, xOut);
+      const [sx0, sx1] = span(xSlot, xIn);
+      const [ex0, ex1] = span(xSlot, xOut);
+      tabs.push(rect(tx0, y0, tx1, y1));
+      slots.push(rect(sx0, y0 - SNAP_SLOT_MM, sx1, y1));
+      slots.push(rect(ex0, y0 - SNAP_SLOT_MM, ex1, y0));
+    }
+    // The barbs live in the door's UPPER half only: the lower half passes straight
+    // through the lip, and what clicks over it is the step between the two.
+    const tris = layeredPrism([
+      { z0: 0,             z1: DOOR_LIP_T_MM, region: clip(body, slots, "difference") },
+      { z0: DOOR_LIP_T_MM, z1: DOOR_T_MM,
+        region: clip(clip(body, tabs, "union"), slots, "difference") },
+    ]);
+    return {
+      name: "Bundlåge",
+      parts: [{ name: "Bundlåge", role: "box", tris }],
+      size: { w: doorW + 2 * SNAP_BARB_MM, h: doorH, z: DOOR_T_MM },
+    };
+  })();
+
   const objects: FidgetObject[] = [
     {
       name: "Kasse",
@@ -453,22 +570,31 @@ export function buildFidgetMesh(
   const zCeiling = CAP_H_MM - CAP_TOP_T_MM;
   const zInlay = CAP_H_MM - INLAY_T_MM;
 
-  const { inlays, capHeightMm } = capInlays(glyphs, labels);
+  const { inlays, capHeightMm } = capInlays(glyphs, labels, lit);
   const capHeightsMm: (number | null)[] = [];
   for (let i = 0; i < n; i++) {
     const inlay = inlays[i];
     capHeightsMm.push(inlay ? capHeightMm : null);
     const topRegion = inlay ? clip(capOuter, inlay, "difference") : capOuter;
 
-    const body = layeredPrism([
-      { z0: 0,                          z1: zCeiling - STEM_DEPTH_MM, region: skirt },
-      { z0: zCeiling - STEM_DEPTH_MM,   z1: zCeiling,                 region: clip(skirt, boss, "union") },
-      { z0: zCeiling,                   z1: zInlay,                   region: capOuter },
-      { z0: zInlay,                     z1: CAP_H_MM,                 region: topRegion },
-    ]);
+    // Lit: the legend runs the FULL thickness of the top. A flush inlay leaves 1.4mm
+    // of opaque cap under it, and no light gets past that — the letters have to be a
+    // hole filled with translucent filament, not a dent in the surface.
+    const body = layeredPrism(lit
+      ? [
+          { z0: 0,                        z1: zCeiling - STEM_DEPTH_MM, region: skirt },
+          { z0: zCeiling - STEM_DEPTH_MM, z1: zCeiling,                 region: clip(skirt, boss, "union") },
+          { z0: zCeiling,                 z1: CAP_H_MM,                 region: topRegion },
+        ]
+      : [
+          { z0: 0,                        z1: zCeiling - STEM_DEPTH_MM, region: skirt },
+          { z0: zCeiling - STEM_DEPTH_MM, z1: zCeiling,                 region: clip(skirt, boss, "union") },
+          { z0: zCeiling,                 z1: zInlay,                   region: capOuter },
+          { z0: zInlay,                   z1: CAP_H_MM,                 region: topRegion },
+        ]);
     const parts: FidgetPart[] = [{ name: `Knap ${i + 1}`, role: "cap", tris: upsideDown(body, CAP_H_MM) }];
     if (inlay) {
-      const text = layeredPrism([{ z0: zInlay, z1: CAP_H_MM, region: inlay }]);
+      const text = layeredPrism([{ z0: lit ? zCeiling : zInlay, z1: CAP_H_MM, region: inlay }]);
       parts.push({ name: `Tekst ${i + 1}`, role: "text", tris: upsideDown(text, CAP_H_MM) });
     }
     objects.push({
@@ -483,6 +609,7 @@ export function buildFidgetMesh(
     capHeightsMm,
     boxMm: { w: boxW + eyeOut, h: boxH, z: boxZ },
     eyeMm: cfg.keyring ? { cx: eyeCX, cy: 0, r: EYE_HOLE_R_MM } : null,
+    door,
   };
 }
 

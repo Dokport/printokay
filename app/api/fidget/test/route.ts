@@ -48,6 +48,8 @@ export async function POST(req: NextRequest) {
     cols, rows,
     labels: Array.isArray(body.labels) ? body.labels.map((l) => String(l ?? "")) : [],
     keyring: !!body.keyring,
+    // Test variant only — nothing in the shop can set this, and pricing ignores it.
+    lit: !!body.lit,
     boxFilamentId: "", capFilamentId: "", textFilamentId: "",
   };
 
@@ -69,7 +71,8 @@ export async function POST(req: NextRequest) {
       crossWidthMm
     );
     const labels = normalizeLabels(config).filter(Boolean).join("-").replace(/[^A-Za-z0-9ÆØÅæøå-]/g, "_");
-    return fileResponse(file, `test_fidget_${cols}x${rows}${labels ? `_${labels}` : ""}.3mf`.slice(0, 90));
+    const name = `test_fidget_${cols}x${rows}${config.lit ? "_lys" : ""}${labels ? `_${labels}` : ""}.3mf`;
+    return fileResponse(file, name.slice(0, 90));
   } catch (err) {
     console.error("Fidget-testfil fejlede:", err);
     return NextResponse.json({ error: "Generering fejlede", details: String(err) }, { status: 500 });

@@ -50,15 +50,27 @@ export function layoutFidgetPlate(mesh: FidgetMesh, cfg: FidgetConfig): Bambu3mf
   });
   const capsH = cfg.rows * pitch;
 
-  // Box and lid: side by side, centred as a pair.
+  // Box and lid side by side, with the lit variant's battery door on its own line
+  // beneath them — all three across runs past the bed's 256mm at four columns.
+  const door = mesh.door;
   const pairW = box.size.w + BOX_LID_GAP_MM + lid.size.w;
-  const boxX = -pairW / 2 + box.size.w / 2;
-  const lidX = pairW / 2 - lid.size.w / 2;
+  const topH = Math.max(box.size.h, lid.size.h);
+  const pairH = topH + (door ? BOX_LID_GAP_MM + door.size.h : 0);
+  const topY = pairH / 2 - topH / 2;
   const boxParts = [
-    ...box.parts.map((p) => ({ name: p.name, extruder: EXTRUDER.box, tris: p.tris, x: boxX, y: 0 })),
-    ...lid.parts.map((p) => ({ name: p.name, extruder: EXTRUDER.box, tris: p.tris, x: lidX, y: 0 })),
+    ...box.parts.map((p) => ({
+      name: p.name, extruder: EXTRUDER.box, tris: p.tris,
+      x: -pairW / 2 + box.size.w / 2, y: topY,
+    })),
+    ...lid.parts.map((p) => ({
+      name: p.name, extruder: EXTRUDER.box, tris: p.tris,
+      x: pairW / 2 - lid.size.w / 2, y: topY,
+    })),
+    ...(door?.parts ?? []).map((p) => ({
+      name: p.name, extruder: EXTRUDER.box, tris: p.tris,
+      x: 0, y: -pairH / 2 + door!.size.h / 2,
+    })),
   ];
-  const pairH = Math.max(box.size.h, lid.size.h);
 
   // Stack the two objects along Y, centred on the bed.
   const total = capsH + OBJECT_GAP_MM + pairH;

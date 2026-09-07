@@ -164,8 +164,8 @@ export default function FidgetConfigurator() {
   // The preview hands back the mesh it built; the read-out is measured, not guessed.
   const onMeasure = useCallback((m: FidgetMesh) => setMesh(m), []);
 
-  /** Build the current design — or the stem comb — without cart or checkout. */
-  async function downloadTestFile(tolerance = false) {
+  /** Build the current design — or a test plate — without cart or checkout. */
+  async function downloadTestFile(kind: "design" | "tolerance" | "lit" = "design") {
     if (!isAdminUser) return;
     setTestDl("busy");
     try {
@@ -173,10 +173,11 @@ export default function FidgetConfigurator() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          tolerance
+          kind === "tolerance"
             ? { tolerance: true, capColorHex: colourOf(capFilamentId), textColorHex: colourOf(textFilamentId) }
             : {
                 cols, rows, keyring, labels: capLabels,
+                lit: kind === "lit",
                 boxColorHex: colourOf(boxFilamentId),
                 capColorHex: colourOf(capFilamentId),
                 textColorHex: colourOf(textFilamentId),
@@ -487,7 +488,7 @@ export default function FidgetConfigurator() {
             </p>
             <div className="flex flex-wrap gap-2">
               <button
-                onClick={() => downloadTestFile(false)}
+                onClick={() => downloadTestFile("design")}
                 disabled={testDl === "busy"}
                 className="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: primaryColor }}
@@ -495,13 +496,25 @@ export default function FidgetConfigurator() {
                 {testDl === "busy" ? "Genererer…" : "⬇ 3MF af denne"}
               </button>
               <button
-                onClick={() => downloadTestFile(true)}
+                onClick={() => downloadTestFile("tolerance")}
                 disabled={testDl === "busy"}
                 className="px-4 py-2 rounded-xl text-sm font-semibold border border-gray-300 text-gray-600 bg-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 ⬇ Stem-tolerance
               </button>
+              <button
+                onClick={() => downloadTestFile("lit")}
+                disabled={testDl === "busy"}
+                className="px-4 py-2 rounded-xl text-sm font-semibold border border-amber-300 text-amber-700 bg-amber-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                💡 Med lys (forsøg)
+              </button>
             </div>
+            <p className="text-xs text-gray-400 mt-2">
+              Lys-varianten er et forsøg: kassen er 16,1 mm i stedet for 12,0, bunden er
+              en aftagelig låge til en CR2032, og teksten går helt igennem hætten så en
+              lysdiode kan skinne ud. Print teksten i hvid eller transparent.
+            </p>
             {testDl === "err" && (
               <p className="text-xs text-red-500 mt-2">
                 Kunne ikke generere filen — se konsollen. Er admin-login udløbet?

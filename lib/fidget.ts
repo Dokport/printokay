@@ -36,6 +36,12 @@ export type FidgetConfig = {
   labels: string[];
   /** Adds a lug with a 5mm hole to the box, so it can hang on a keychain. */
   keyring?: boolean;
+  /**
+   * Test variant: battery door in the bottom and the legend cut through the cap top
+   * so an LED inside the switch shines through it. Admin test prints only — the
+   * shop never sets it, and pricing does not know about it.
+   */
+  lit?: boolean;
   boxFilamentId: string;     // box + lid
   capFilamentId: string;
   textFilamentId: string;
