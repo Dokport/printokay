@@ -190,6 +190,7 @@ export default function KurvPage() {
           // Shop price where we have it, so the rows agree with the total below.
           const itemPrice = serverPrices?.[i] ?? getItemPrice(item);
           const kd = item.keyringData;
+          const fd = item.fidgetData;
           return (
           <div key={item.cartKey} className="bg-white rounded-2xl p-4 flex items-center gap-4 shadow-sm">
             <div className="text-2xl flex-shrink-0">{item.product.emoji}</div>
@@ -214,6 +215,29 @@ export default function KurvPage() {
                         </div>
                       </>
                     )}
+                  </div>
+                </>
+              ) : fd ? (
+                <>
+                  <p className="font-semibold text-gray-800">
+                    🎛️ Fidget clicker {fd.cols}×{fd.rows}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {fd.cols * fd.rows} × {fd.switchLabel.toLowerCase()}
+                    {fd.labels.some(Boolean) && ` · ${fd.labels.filter(Boolean).join(" ")}`}
+                  </p>
+                  <div className="flex items-center gap-3 mt-1 flex-wrap">
+                    {([
+                      [fd.boxColorHex, fd.boxFilamentName, "kasse"],
+                      [fd.capColorHex, fd.capFilamentName, "knapper"],
+                      [fd.textColorHex, fd.textFilamentName, "tekst"],
+                    ] as const).map(([hex, name, what]) => (
+                      <div key={what} className="flex items-center gap-1">
+                        <span className="w-3 h-3 rounded-full border border-gray-200 flex-shrink-0"
+                          style={{ backgroundColor: hex }} />
+                        <span className="text-xs text-gray-400">{name}</span>
+                      </div>
+                    ))}
                   </div>
                 </>
               ) : (

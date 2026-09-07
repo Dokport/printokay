@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useCart } from "@/lib/cartContext";
 import { formatPrice } from "@/lib/products";
 import { detectWebGL } from "@/lib/webgl";
+import { getAdminToken } from "@/lib/adminSession";
 import {
   MAX_CAP_CHARS, MAX_COLS, MAX_ROWS,
   calcFidgetPrice, exampleLabel, fidgetFilaments, switchCount, validateFidget,
@@ -65,6 +66,22 @@ export default function FidgetConfigurator() {
   const [added, setAdded] = useState(false);
   const [webglOk, setWebglOk] = useState(true);
   const [mesh, setMesh] = useState<FidgetMesh | null>(null);
+
+  // Admin-only test download. Stays null for every normal visitor, and the token is
+  // only trusted once the SERVER has confirmed it — the download route enforces the
+  // same check independently, so this is about not showing controls that aren't
+  // yours, not about guarding the files.
+  const [adminToken, setAdminToken] = useState<string | null>(null);
+  const [testDl, setTestDl] = useState<"idle" | "busy" | "err">("idle");
+  useEffect(() => {
+    const token = getAdminToken();
+    if (!token) return;
+    let cancelled = false;
+    fetch("/api/admin-check", { headers: { "x-admin-token": token } })
+      .then((res) => { if (!cancelled && res.ok) setAdminToken(token); })
+      .catch(() => { /* not admin — leave hidden */ });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -147,6 +164,42 @@ export default function FidgetConfigurator() {
 
   // The preview hands back the mesh it built; the read-out is measured, not guessed.
   const onMeasure = useCallback((m: FidgetMesh) => setMesh(m), []);
+
+  /** Build the current design — or the stem comb — without cart or checkout. */
+  async function downloadTestFile(tolerance = false) {
+    if (!adminToken) return;
+    setTestDl("busy");
+    try {
+      const res = await fetch("/api/fidget/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+        body: JSON.stringify(
+          tolerance
+            ? { tolerance: true, capColorHex: colourOf(capFilamentId), textColorHex: colourOf(textFilamentId) }
+            : {
+                cols, rows, labels: capLabels,
+                boxColorHex: colourOf(boxFilamentId),
+                capColorHex: colourOf(capFilamentId),
+                textColorHex: colourOf(textFilamentId),
+              }
+        ),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      const blob = await res.blob();
+      const name =
+        res.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "test_fidget.3mf";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+      setTestDl("idle");
+    } catch (err) {
+      console.error("Testfil fejlede:", err);
+      setTestDl("err");
+    }
+  }
 
   function handleAddToCart() {
     if (!canBuy) return;
@@ -367,6 +420,42 @@ export default function FidgetConfigurator() {
           <Link href="/kurv" className="text-center text-sm font-medium" style={{ color: primaryColor }}>
             Se kurv →
           </Link>
+        )}
+
+        {/* Admin-only: grab the model as a print file without placing an order. */}
+        {adminToken && (
+          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+              Admin · testprint
+            </p>
+            <p className="text-xs text-gray-500 mb-3">
+              Henter modellen præcis som den står nu — ingen ordre, kurv eller betaling.
+              Knapper og kasse ligger som hvert sit objekt, så den kan sliced med
+              &quot;by object&quot;.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => downloadTestFile(false)}
+                disabled={testDl === "busy"}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {testDl === "busy" ? "Genererer…" : "⬇ 3MF af denne"}
+              </button>
+              <button
+                onClick={() => downloadTestFile(true)}
+                disabled={testDl === "busy"}
+                className="px-4 py-2 rounded-xl text-sm font-semibold border border-gray-300 text-gray-600 bg-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ⬇ Stem-tolerance
+              </button>
+            </div>
+            {testDl === "err" && (
+              <p className="text-xs text-red-500 mt-2">
+                Kunne ikke generere filen — se konsollen. Er admin-login udløbet?
+              </p>
+            )}
+          </div>
         )}
 
         <div className="bg-gray-50 rounded-2xl p-4 text-sm text-gray-600 flex flex-col gap-1">

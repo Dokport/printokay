@@ -24,6 +24,29 @@ export type OrderItemKeyring = {
   bambuddyFormatVersion?: number; // 3MF format version last uploaded → triggers re-sync
 };
 
+/**
+ * A fidget clicker on an order. Carries the whole configuration, so the 3MF can be
+ * rebuilt at any time without the browser that placed the order.
+ */
+export type OrderItemFidget = {
+  cols: number;
+  rows: number;
+  labels: string[];
+  boxColorHex: string;
+  capColorHex: string;
+  textColorHex: string;
+  boxFilamentName: string;
+  capFilamentName: string;
+  textFilamentName: string;
+  switchLabel: string;
+  fileId: string;         // identifies this line item in sync + download URLs
+  // ── Bambuddy-synkronisering, som nøgleringen ──
+  bambuddyFileId?: string;
+  bambuddyFolderId?: string;
+  bambuddySyncedAt?: string;
+  bambuddyFormatVersion?: number;
+};
+
 export type OrderColorChoice = {
   slotLabel: string;
   filamentName: string;
@@ -37,6 +60,7 @@ export type OrderItem = {
   quantity: number;
   unitAmount: number;     // øre per unit
   keyring?: OrderItemKeyring;     // present only for keyring items
+  fidget?: OrderItemFidget;       // present only for fidget items
   colorChoices?: OrderColorChoice[];
   note?: string;
 };

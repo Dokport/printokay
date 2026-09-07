@@ -32,6 +32,7 @@ import { sendOrderConfirmation } from "./email";
 import { redeemPromo } from "./promos";
 import { loadPricing } from "./pricing";
 import { joinTextLines } from "./textpaths";
+import { normalizeLabels, switchCount } from "./fidget";
 
 export type PendingCart = {
   items: CartItem[];
@@ -126,6 +127,34 @@ async function buildOrderItem(
         textFilamentName: kd.textFilamentName,
         stlId,
         stlGenerated,
+      },
+    };
+  }
+
+  if (ci.fidgetData) {
+    const fd = ci.fidgetData;
+    const labels = normalizeLabels({ ...fd, boxFilamentId: "", capFilamentId: "", textFilamentId: "" });
+    const written = labels.filter(Boolean).join(" ");
+    const count = switchCount(fd);
+    return {
+      name: `Fidget clicker ${fd.cols}×${fd.rows}${written ? ` "${written}"` : ""}`,
+      description: `${count} × ${fd.switchLabel} — kasse ${fd.boxFilamentName}, knapper ${fd.capFilamentName}, tekst ${fd.textFilamentName}`,
+      emoji: "🎛️",
+      quantity: ci.quantity,
+      unitAmount,
+      fidget: {
+        cols: fd.cols,
+        rows: fd.rows,
+        labels,
+        boxColorHex: fd.boxColorHex,
+        capColorHex: fd.capColorHex,
+        textColorHex: fd.textColorHex,
+        boxFilamentName: fd.boxFilamentName,
+        capFilamentName: fd.capFilamentName,
+        textFilamentName: fd.textFilamentName,
+        switchLabel: fd.switchLabel,
+        // The 3MF is generated on demand and never cached, so this is only an id.
+        fileId: `${orderId}-${idx}`,
       },
     };
   }

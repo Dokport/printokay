@@ -24,6 +24,10 @@ function itemDescription(item: OrderItem): string | null {
     const k = item.keyring;
     return `${k.baseFilamentName} bund, ${k.textFilamentName} tekst · ${k.config.font.replace(/-/g, " ")}`;
   }
+  if (item.fidget) {
+    const f = item.fidget;
+    return `${f.cols * f.rows} × ${f.switchLabel} · kasse ${f.boxFilamentName}, knapper ${f.capFilamentName}, tekst ${f.textFilamentName}`;
+  }
   if (item.colorChoices?.length) {
     return item.colorChoices.map((c) => `${c.slotLabel}: ${c.filamentName}`).join(" · ");
   }

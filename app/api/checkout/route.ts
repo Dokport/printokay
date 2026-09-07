@@ -59,9 +59,12 @@ export async function POST(req: NextRequest) {
 
   const lineItems = items.flatMap((item, i) => {
     const isKeyring = !!item.keyringData;
+    const fd = item.fidgetData;
     const name = isKeyring
       ? `Nøglering: "${joinTextLines(item.keyringData!.text)}" (${item.keyringData!.sizeLabel})`
-      : item.product.name;
+      : fd
+        ? `Fidget clicker ${fd.cols}×${fd.rows}${fd.labels.some(Boolean) ? ` "${fd.labels.filter(Boolean).join(" ")}"` : ""}`
+        : item.product.name;
 
     const descParts: (string | null)[] = [];
     if (isKeyring) {
@@ -69,6 +72,11 @@ export async function POST(req: NextRequest) {
       descParts.push(`Font: ${kd.font.replace(/-/g, " ")}`);
       descParts.push(`Base: ${kd.baseFilamentName}`);
       descParts.push(`Tekst: ${kd.textFilamentName}`);
+    } else if (fd) {
+      descParts.push(`${fd.cols * fd.rows} × ${fd.switchLabel}`);
+      descParts.push(`Kasse: ${fd.boxFilamentName}`);
+      descParts.push(`Knapper: ${fd.capFilamentName}`);
+      descParts.push(`Tekst: ${fd.textFilamentName}`);
     } else {
       descParts.push(item.product.description);
       if (item.colorChoices?.length) {

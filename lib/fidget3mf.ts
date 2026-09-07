@@ -16,7 +16,7 @@ import { writeBambu3mf, type Bambu3mfObject } from "./bambu3mf";
 import {
   buildFidgetMesh, buildFidgetTolerancePlate, CAP_W_MM, type FidgetMesh,
 } from "./fidgetMesh";
-import { FIDGET_FONT, type FidgetConfig } from "./fidget";
+import { FIDGET_FONT, normalizeLabels, type FidgetConfig } from "./fidget";
 
 export const FIDGET_3MF_VERSION = 1;
 
@@ -71,13 +71,18 @@ export function layoutFidgetPlate(mesh: FidgetMesh, cfg: FidgetConfig): Bambu3mf
   ];
 }
 
-export function generateFidget3mf(cfg: FidgetConfig, colours: FidgetColours): {
-  file: Buffer;
-  mesh: FidgetMesh;
-} {
-  const mesh = buildFidgetMesh(cfg, (text, em) => extractTextContours(text, FIDGET_FONT, em));
+export function generateFidget3mf(
+  cfg: FidgetConfig,
+  colours: FidgetColours,
+  crossWidthMm?: number
+): { file: Buffer; mesh: FidgetMesh } {
+  const mesh = buildFidgetMesh(
+    cfg,
+    (text, em) => extractTextContours(text, FIDGET_FONT, em),
+    crossWidthMm
+  );
   const objects = layoutFidgetPlate(mesh, cfg);
-  const labels = cfg.labels.filter(Boolean).join(" ");
+  const labels = normalizeLabels(cfg).filter(Boolean).join(" ");
   const file = writeBambu3mf({
     title: `Fidget ${cfg.cols}×${cfg.rows}${labels ? ` "${labels}"` : ""}`,
     filamentHex: [colours.box, colours.cap, colours.text],
