@@ -87,6 +87,13 @@ export type Order = {
    * made and what it would normally have cost.
    */
   promo?: { code: string; discount: number };
+  /**
+   * Set when the order's promo code had already been won by another purchase. The
+   * customer got the discount at checkout and Stripe cannot take it back, so the
+   * order is kept — but it is held: not synced to the printer and no confirmation
+   * sent, until someone has looked at it.
+   */
+  promoConflict?: string;
 };
 
 // Back-compat alias — older imports referenced KeyringOrder.

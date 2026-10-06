@@ -16,7 +16,8 @@ export async function GET(req: NextRequest) {
   }
 
   const orders = await readOrders();
-  const toUpload = orders.flatMap((o) =>
+  // A held order (promo conflict) waits for a person, not for the printer.
+  const toUpload = orders.filter((o) => !o.promoConflict).flatMap((o) =>
     o.items
       .filter((it) => it.fidget && (!it.fidget.bambuddySyncedAt || it.fidget.bambuddyFormatVersion !== FIDGET_3MF_VERSION))
       .map((it) => {

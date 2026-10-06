@@ -18,7 +18,8 @@ export async function GET(req: NextRequest) {
 
   const orders = await readOrders();
 
-  const toUpload = orders.flatMap((o) =>
+  // A held order (promo conflict) waits for a person, not for the printer.
+  const toUpload = orders.filter((o) => !o.promoConflict).flatMap((o) =>
     o.items
       // Upload if never synced, or if the 3MF format changed since it was last synced.
       .filter((it) => it.keyring && (!it.keyring.bambuddySyncedAt || it.keyring.bambuddyFormatVersion !== KEYRING_3MF_VERSION))

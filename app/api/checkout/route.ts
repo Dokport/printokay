@@ -4,7 +4,9 @@ import { CartItem } from "@/lib/cart";
 import { writeJsonFile } from "@/lib/storage";
 import { loadPricing, priceCart } from "@/lib/pricing";
 import { pendingCartKey } from "@/lib/fulfillment";
-import { checkPromo, reservePromo, releasePromo, normalizePromoCode } from "@/lib/promos";
+import {
+  checkPromo, reservePromo, releasePromo, normalizePromoCode, setReservationSession,
+} from "@/lib/promos";
 import { joinTextLines } from "@/lib/textpaths";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -50,11 +52,22 @@ export async function POST(req: NextRequest) {
 
   // Re-validate the code here from scratch. Whatever the cart page decided to
   // display is irrelevant — this is the only check that can move money.
+  const reservationId = holderId || `checkout-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   let promo: { code: string; discount: number; cartKey: string } | null = null;
   if (promoCode && normalizePromoCode(promoCode)) {
     const check = await checkPromo(promoCode, items, holderId, pricing);
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
     promo = { code: check.promo.code, discount: check.discount, cartKey: check.cartKey };
+
+    // Coming back to check out again is allowed — but the session made last time
+    // still carries the discount, and every one left open is another free keyring.
+    // Expire it first. If it can't be expired because it was already paid, this
+    // code is spent.
+    const previous = check.promo.reservedBy === reservationId ? check.promo.reservedSession : undefined;
+    if (previous) {
+      const blocked = await retirePreviousSession(previous);
+      if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
+    }
   }
 
   const lineItems = items.flatMap((item, i) => {
@@ -111,7 +124,6 @@ export async function POST(req: NextRequest) {
   // Hold the code before Stripe is involved, so two people cannot both reach a
   // payment page believing the same code is theirs. Held by browser, so coming
   // back from an abandoned payment re-acquires the customer's own reservation.
-  const reservationId = holderId || `checkout-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   if (promo && !(await reservePromo(promo.code, reservationId))) {
     return NextResponse.json(
       { error: "Promokoden blev lige brugt. Prøv igen." },
@@ -149,6 +161,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Kunne ikke starte betalingen." }, { status: 500 });
   }
 
+  // From here on this is the one session the discount may be paid out on.
+  if (promo) await setReservationSession(promo.code, reservationId, session.id);
+
   // Stash the full cart server-side, keyed by the session id. The webhook (and
   // the success-page fallback) read this back to build the order for ALL item
   // types — so order creation never depends on the customer's browser.
@@ -159,4 +174,26 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ url: session.url });
+}
+
+/**
+ * Expire a checkout session that held a promo reservation. Returns an error to
+ * show the customer if the code can no longer be used, or null if it is free.
+ *
+ * Fails closed: a session we cannot account for is treated as still able to pay.
+ */
+async function retirePreviousSession(sessionId: string): Promise<string | null> {
+  try {
+    await stripe.checkout.sessions.expire(sessionId);
+    return null;
+  } catch {
+    // Already expired is fine; already paid means the code is spent. Anything
+    // else — Stripe down, unknown id — is not safe to wave through.
+    try {
+      const s = await stripe.checkout.sessions.retrieve(sessionId);
+      if (s.status === "expired") return null;
+      if (s.status === "complete") return "Denne promokode er allerede brugt.";
+    } catch { /* fall through */ }
+    return "Promokoden kunne ikke frigives lige nu. Prøv igen om lidt.";
+  }
 }

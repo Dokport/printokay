@@ -29,7 +29,7 @@ import {
 } from "./orders";
 import { generateKeyringStl } from "./stl";
 import { sendOrderConfirmation } from "./email";
-import { redeemPromo } from "./promos";
+import { redeemPromo, claimPromoRedemption } from "./promos";
 import { loadPricing } from "./pricing";
 import { joinTextLines } from "./textpaths";
 import { normalizeLabels, switchCount } from "./fidget";
@@ -220,6 +220,21 @@ export async function finalizeOrder(sessionId: string): Promise<Order | null> {
 
   const computedTotal = items.reduce((sum, it) => sum + it.unitAmount * it.quantity, 0);
 
+  // Win the code before the order exists, so a loser is saved already flagged.
+  // The claim is atomic: of any number of purchases on one code exactly one gets
+  // it. Checkout expires stale sessions, but a session can slip through a race —
+  // this is the line that cannot be raced.
+  let promoConflict: string | undefined;
+  if (cart.promo) {
+    const won = await claimPromoRedemption(cart.promo.code, sessionId, orderId);
+    if (!won.ok) {
+      promoConflict = won.claim
+        ? `Koden ${cart.promo.code} var allerede indløst af ${won.claim.orderId}`
+        : `Koden ${cart.promo.code} kunne ikke indløses`;
+      console.error(`Promo-konflikt på ${orderId} (session ${sessionId}): ${promoConflict}`);
+    }
+  }
+
   const order: Order = {
     id: orderId,
     createdAt: new Date().toISOString(),
@@ -229,13 +244,14 @@ export async function finalizeOrder(sessionId: string): Promise<Order | null> {
     items,
     customer: extractCustomer(session),
     ...(cart.promo ? { promo: cart.promo } : {}),
+    ...(promoConflict ? { promoConflict } : {}),
   };
 
   const saved = await addOrder(order);
 
-  // Burn the code only now, once the order really exists. redeemPromo is
-  // idempotent, and the `existing` guard above means we get here once per order.
-  if (cart.promo) {
+  // Mark the code used in the admin list. The claim above is what actually
+  // decides; this is bookkeeping, so a failure here is logged, not fatal.
+  if (cart.promo && !promoConflict) {
     try {
       await redeemPromo(cart.promo.code, saved.id, saved.customer?.email);
     } catch (err) {
@@ -249,7 +265,11 @@ export async function finalizeOrder(sessionId: string): Promise<Order | null> {
   // the `existing` check above makes every later call for this session a no-op
   // before it ever reaches here, so the confirmation email is sent exactly once,
   // regardless of whether the webhook or the success-page fallback got here first.
-  sendOrderConfirmation(saved).catch((err) => console.error("sendOrderConfirmation:", err));
+  // A held order gets no confirmation: it would promise something we have not
+  // decided to make.
+  if (!saved.promoConflict) {
+    sendOrderConfirmation(saved).catch((err) => console.error("sendOrderConfirmation:", err));
+  }
 
   return saved;
 }

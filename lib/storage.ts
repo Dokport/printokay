@@ -55,6 +55,41 @@ export async function writeJsonFile<T>(filename: string, data: T): Promise<void>
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 }
 
+/**
+ * Create a JSON file only if it does not exist yet — atomically, so of several
+ * callers racing for the same name exactly one gets `true`. This is the one
+ * primitive here that can serve as a lock; read-then-write cannot.
+ *
+ * Blob reports "already exists" as a generic bad_request, so rather than match
+ * on an error message the file is read back: there means someone else won,
+ * missing means the write failed for a real reason and the error is rethrown.
+ */
+export async function createJsonFileIfAbsent<T>(filename: string, data: T): Promise<boolean> {
+  if (useBlob) {
+    try {
+      await put(filename, JSON.stringify(data, null, 2), {
+        access: "private",
+        contentType: "application/json",
+        allowOverwrite: false,
+      });
+      return true;
+    } catch (err) {
+      const existing = await readJsonFile<T | null>(filename, null);
+      if (existing !== null) return false;
+      throw err;
+    }
+  }
+  const filePath = path.join(process.cwd(), "data", filename);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { flag: "wx" });
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw err;
+  }
+}
+
 /** Best-effort delete. Never throws — a lingering file is harmless. */
 export async function deleteFile(filename: string): Promise<void> {
   try {

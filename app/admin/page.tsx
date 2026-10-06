@@ -1241,7 +1241,14 @@ export default function AdminPage() {
                   }, 0);
 
                 return (
-                    <div key={order.id} className="border border-gray-100 rounded-2xl p-4">
+                    <div key={order.id} className={`border rounded-2xl p-4 ${order.promoConflict ? "border-red-300 bg-red-50/40" : "border-gray-100"}`}>
+                      {order.promoConflict && (
+                        <div className="mb-3 rounded-xl bg-red-100 px-3 py-2 text-sm text-red-800">
+                          <strong>⛔ Holdt tilbage:</strong> {order.promoConflict}. Rabatkoden var allerede brugt,
+                          så ordren er hverken sendt til printeren eller bekræftet over for kunden.
+                          Kontakt kunden før du laver den.
+                        </div>
+                      )}
                       <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-gray-800">

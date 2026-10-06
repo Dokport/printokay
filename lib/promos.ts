@@ -9,7 +9,7 @@
  * Nothing the browser sends about the discount is trusted; the client's copy only
  * decides what the cart displays.
  */
-import { readJsonFile, writeJsonFile } from "./storage";
+import { readJsonFile, writeJsonFile, createJsonFileIfAbsent } from "./storage";
 import type { CartItem } from "./cart";
 import { loadPricing, type Pricing } from "./pricing";
 
@@ -36,6 +36,12 @@ export type PromoCode = {
   expiresAt?: string;
   reservedBy?: string;       // browser holding it through checkout
   reservedAt?: string;
+  /**
+   * The Stripe session the reservation currently belongs to. A holder may come
+   * back and check out again, but only ONE session may carry the discount — the
+   * previous one is expired when a new one is made.
+   */
+  reservedSession?: string;
   redeemedAt?: string;
   redeemedOrderId?: string;
   redeemedEmail?: string;
@@ -117,12 +123,14 @@ export async function checkPromo(
   if (!code) return { ok: false, error: "Skriv en promokode." };
 
   const promo = (await readPromos()).find((p) => p.code === code);
-  // Deliberately the same message for unknown and used-up codes: a probe should
-  // not be able to tell "this code existed" from "this code never existed".
   if (!promo) return { ok: false, error: "Ugyldig promokode." };
 
   const status = promoStatus(promo);
-  if (status === "redeemed") return { ok: false, error: "Denne promokode er allerede brugt." };
+  // The claim is the authority on "used" — promos.json can lose a write when two
+  // things save it at once, the claim file cannot.
+  if (status === "redeemed" || (await readPromoClaim(code))) {
+    return { ok: false, error: "Denne promokode er allerede brugt." };
+  }
   if (status === "expired") return { ok: false, error: "Denne promokode er udløbet." };
   if (status === "reserved" && promo.reservedBy !== holderId) {
     return { ok: false, error: "Promokoden er i brug lige nu. Prøv igen om lidt." };
@@ -137,9 +145,10 @@ export async function checkPromo(
 }
 
 /**
- * Take the code out of circulation for this checkout. Re-reads and re-checks
- * immediately before writing, so two checkouts racing for the last use of a code
- * cannot both win.
+ * Take the code out of circulation for this checkout, so the cart can tell a
+ * second customer it is busy. NOT a lock: two calls landing together can both
+ * pass, and a holder may re-reserve on purpose. What stops a code paying twice is
+ * the session expiry in checkout and, finally, `claimPromoRedemption`.
  */
 export async function reservePromo(raw: string, holderId: string): Promise<boolean> {
   const code = normalizePromoCode(raw);
@@ -165,7 +174,56 @@ export async function releasePromo(raw: string, holderId: string): Promise<void>
   if (!promo || promo.reservedBy !== holderId || promo.redeemedAt) return;
   delete promo.reservedBy;
   delete promo.reservedAt;
+  delete promo.reservedSession;
   await writePromos(list);
+}
+
+/**
+ * Record which Stripe session now carries the discount, and hand back the one it
+ * replaces so checkout can expire it. Without this a holder could open any number
+ * of 0 kr sessions on one code and complete them all.
+ */
+export async function setReservationSession(
+  raw: string,
+  holderId: string,
+  sessionId: string
+): Promise<void> {
+  const code = normalizePromoCode(raw);
+  const list = await readPromos();
+  const promo = list.find((p) => p.code === code);
+  if (!promo || promo.reservedBy !== holderId || promo.redeemedAt) return;
+  promo.reservedSession = sessionId;
+  await writePromos(list);
+}
+
+// ─── Redemption claim ─────────────────────────────────────────────────────────
+
+export type PromoClaim = { code: string; sessionId: string; orderId: string; at: string };
+
+const claimFile = (code: string) => `promo-claims/${code}.json`;
+
+export function readPromoClaim(code: string): Promise<PromoClaim | null> {
+  return readJsonFile<PromoClaim | null>(claimFile(normalizePromoCode(code)), null);
+}
+
+/**
+ * Win the code for one purchase — atomically. The claim file can only be created
+ * once, so of any number of orders racing for the same code exactly one gets it.
+ *
+ * Keyed by Stripe session rather than order, because the same purchase is
+ * finalized from two places (webhook and success page): a second call for the
+ * SAME session is that purchase again, not a competitor, and succeeds.
+ */
+export async function claimPromoRedemption(
+  raw: string,
+  sessionId: string,
+  orderId: string
+): Promise<{ ok: true } | { ok: false; claim: PromoClaim | null }> {
+  const code = normalizePromoCode(raw);
+  const claim: PromoClaim = { code, sessionId, orderId, at: new Date().toISOString() };
+  if (await createJsonFileIfAbsent(claimFile(code), claim)) return { ok: true };
+  const existing = await readPromoClaim(code);
+  return existing?.sessionId === sessionId ? { ok: true } : { ok: false, claim: existing };
 }
 
 /**
@@ -189,6 +247,7 @@ export async function redeemPromo(
   if (email) promo.redeemedEmail = email;
   delete promo.reservedBy;
   delete promo.reservedAt;
+  delete promo.reservedSession;
   await writePromos(list);
   return promo;
 }
