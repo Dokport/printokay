@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
 
-  const { productId, bambuddy, bambuddyId } = await req.json();
+  const { productId, bambuddy, bambuddyId } = await req.json().catch(() => ({}));
   if (!productId) {
     return NextResponse.json({ error: "productId påkrævet" }, { status: 400 });
   }

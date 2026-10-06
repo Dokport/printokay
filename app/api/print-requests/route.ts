@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
 
-  const { productId, printerId, quantity } = await req.json();
+  const { productId, printerId, quantity } = await req.json().catch(() => ({}));
   if (!productId) {
     return NextResponse.json({ error: "productId påkrævet" }, { status: 400 });
   }

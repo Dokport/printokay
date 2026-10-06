@@ -8,7 +8,7 @@ import { finalizeOrder } from "@/lib/fulfillment";
 // from the browser: it only records an order if Stripe confirms payment.
 export async function POST(req: NextRequest) {
   try {
-    const { sessionId } = await req.json();
+    const { sessionId } = await req.json().catch(() => ({}));
     if (!sessionId) {
       return NextResponse.json({ error: "sessionId påkrævet" }, { status: 400 });
     }
@@ -36,7 +36,7 @@ export async function PATCH(req: NextRequest) {
   if (!isAdmin(req)) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
-  const { orderId, status } = await req.json();
+  const { orderId, status } = await req.json().catch(() => ({}));
   await updateOrderStatus(orderId, status);
   return NextResponse.json({ ok: true });
 }

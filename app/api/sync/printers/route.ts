@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
 
-  const { printers } = await req.json();
+  const { printers } = await req.json().catch(() => ({}));
   if (!Array.isArray(printers)) {
     return NextResponse.json({ error: "printers[] påkrævet" }, { status: 400 });
   }

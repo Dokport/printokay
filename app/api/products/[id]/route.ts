@@ -31,7 +31,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!isAdmin(req)) return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
 
   const { id } = await params;
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
   const products = await readProducts();
 
   const idx = products.findIndex((p) => p.id === id);

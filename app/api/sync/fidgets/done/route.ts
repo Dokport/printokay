@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
 
-  const { fileId, bambuddy } = await req.json();
+  const { fileId, bambuddy } = await req.json().catch(() => ({}));
   if (!fileId) {
     return NextResponse.json({ error: "fileId påkrævet" }, { status: 400 });
   }

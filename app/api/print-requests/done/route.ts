@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
 
-  const { requestId, status, error } = await req.json();
+  const { requestId, status, error } = await req.json().catch(() => ({}));
   if (!requestId) {
     return NextResponse.json({ error: "requestId påkrævet" }, { status: 400 });
   }

@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
 
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
 
   const images: string[] = body.images && body.images.length > 0
     ? body.images

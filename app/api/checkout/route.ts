@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     promoCode?: string;
     /** Stable per-browser id, so a customer can re-enter their own checkout. */
     holderId?: string;
-  } = await req.json();
+  } = await req.json().catch(() => ({}));
 
   // Every amount below comes from here, never from the request body — and so does
   // every item: priceCart validates the cart and rebuilds each item from the shop's

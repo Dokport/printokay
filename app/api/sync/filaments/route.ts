@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
 
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
   const incoming: IncomingSpool[] = Array.isArray(body?.spools) ? body.spools : [];
 
   // Recomputed inside the update: the admin may be saving settings at this very

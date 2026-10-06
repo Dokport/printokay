@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
   }
 
-  const { stlId, bambuddy } = await req.json();
+  const { stlId, bambuddy } = await req.json().catch(() => ({}));
   if (!stlId) {
     return NextResponse.json({ error: "stlId påkrævet" }, { status: 400 });
   }
