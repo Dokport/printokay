@@ -11,27 +11,24 @@ import { parseThreeMf, parseThreeMfMeta, parseSlicedStats } from "@/lib/threemf"
 import { upload } from "@vercel/blob/client";
 import ZoneMapper from "@/components/ZoneMapper";
 import Image from "next/image";
-import { ADMIN_SESSION_KEY as SESSION_KEY } from "@/lib/adminSession";
 
 const EMOJIS = ["🦕", "🐉", "🦊", "🐼", "🐸", "🎲", "⭕", "🌀", "🎯", "🌸", "🔑", "🖨️", "⭐", "🎁", "🧩"];
 const LOGO_EMOJIS = ["🖨️", "⭐", "🌟", "🎨", "🛍️", "✨", "🎁", "🎀", "🌈", "🦋", "🌸", "💎", "🔮", "🎪", "🏷️"];
 const CAT_EMOJIS = ["🦕", "🎲", "🔧", "🌸", "🐉", "🎯", "⭐", "🎁", "🧩", "🔑", "🌀", "🦊", "🐼", "🎀", "💎"];
 const EMPTY_FORM = { name: "", description: "", price: "", emoji: "🖨️", category: "", image: "", images: [] as string[], material: "", modelUrl: "", colorSlots: [] as { id: string; label: string }[], printHours: "", printMins: "", filamentGrams: "", materialCost: "", modelFile: "", printFile: "", colorZones: [] as ColorZone[], previewModel: "" };
 
-function getStoredPw(): string | null {
-  return typeof window !== "undefined" ? sessionStorage.getItem(SESSION_KEY) : null;
-}
+/**
+ * Fetch as the admin. The session is an httpOnly cookie the browser sends by
+ * itself — this page never holds a secret. (It used to keep the password in
+ * sessionStorage and send it on every request.) A 401 means the session ran out,
+ * which the page turns back into the login form.
+ */
+const SESSION_EXPIRED = "po-admin-expired";
 
-function authHeaders(): Record<string, string> {
-  const pw = getStoredPw();
-  return pw ? { "x-admin-token": pw } : {};
-}
-
-function authedFetch(url: string, opts: RequestInit = {}) {
-  return fetch(url, {
-    ...opts,
-    headers: { ...(opts.headers as Record<string, string> ?? {}), ...authHeaders() },
-  });
+async function authedFetch(url: string, opts: RequestInit = {}) {
+  const res = await fetch(url, opts);
+  if (res.status === 401) window.dispatchEvent(new Event(SESSION_EXPIRED));
+  return res;
 }
 
 type PromoRow = {
@@ -141,9 +138,12 @@ export default function AdminPage() {
   const [filamentSaving, setFilamentSaving] = useState(false);
 
   useEffect(() => {
-    const pw = sessionStorage.getItem(SESSION_KEY);
-    if (pw) setLoggedIn(true);
+    // Logged in is whatever the server says the cookie is worth.
+    fetch("/api/admin-check").then((r) => { if (r.ok) setLoggedIn(true); }).catch(() => {});
+    const expired = () => setLoggedIn(false);
+    window.addEventListener(SESSION_EXPIRED, expired);
     fetch("/api/settings").then((r) => r.json()).then((d) => { if (d.siteName) setSettings(d); });
+    return () => window.removeEventListener(SESSION_EXPIRED, expired);
   }, []);
 
   useEffect(() => {
@@ -245,9 +245,9 @@ export default function AdminPage() {
         body: JSON.stringify({ password }),
       });
       const data = await res.json();
-      if (res.ok && data.token) {
+      if (res.ok && data.ok) {
         setLoginError("✓ OK — logger ind...");
-        sessionStorage.setItem(SESSION_KEY, data.token);
+        setPassword("");
         setLoggedIn(true);
       } else {
         setLoginError(`Fejl ${res.status}: ${data.error ?? "Forkert adgangskode"}`);
@@ -257,8 +257,8 @@ export default function AdminPage() {
     }
   }
 
-  function handleLogout() {
-    sessionStorage.removeItem(SESSION_KEY);
+  async function handleLogout() {
+    await fetch("/api/admin-logout", { method: "POST" }).catch(() => {});
     setLoggedIn(false);
     setPassword("");
   }
@@ -298,7 +298,6 @@ export default function AdminPage() {
       const blob = await upload(pathname, file, {
         access: "private",
         handleUploadUrl: "/api/blob-upload",
-        clientPayload: getStoredPw() ?? "",
       });
       return blob.pathname;
     } catch {

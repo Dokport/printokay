@@ -1,18 +1,22 @@
 /**
- * Where the admin password lives in the browser. Client-safe (no next/server
- * imports), so both the admin page and the shop can read it without drifting apart.
+ * Is the person looking at this page a logged-in admin? Client-safe.
  *
- * sessionStorage, not localStorage: the login dies with the tab. That means the
- * admin-only controls in the shop appear once you've navigated there from /admin
- * in the same tab.
+ * The session itself is an httpOnly cookie this code cannot read — that is the
+ * point: a script injected into the page can't read it either. What can be read
+ * is a hint cookie set beside it, which carries no authority; it only saves every
+ * ordinary visitor a call to /api/admin-check. The server's answer is what counts.
  */
-export const ADMIN_SESSION_KEY = "po_adm";
+export function hasAdminHint(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie.split(";").some((c) => c.trim() === "po_admin_hint=1");
+}
 
-export function getAdminToken(): string | null {
-  if (typeof window === "undefined") return null;
+/** Ask the server. The session cookie is sent along automatically. */
+export async function checkAdmin(): Promise<boolean> {
+  if (!hasAdminHint()) return false;
   try {
-    return sessionStorage.getItem(ADMIN_SESSION_KEY);
+    return (await fetch("/api/admin-check")).ok;
   } catch {
-    return null;
+    return false;
   }
 }

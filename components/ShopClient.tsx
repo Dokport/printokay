@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { Product } from "@/lib/products";
 import { SiteSettings } from "@/lib/settings";
 import ProductCard from "@/components/ProductCard";
-import { getAdminToken } from "@/lib/adminSession";
+import { checkAdmin } from "@/lib/adminSession";
 
 // Load configurator lazily — pulls in three.js, only needed when tab is active.
 const loading = () => (
@@ -42,16 +42,12 @@ export default function ShopClient({ products, settings }: Props) {
     if (!q.has("fidget")) return;
     if (settings.fidget?.enabled) { setActiveCategory(FIDGET_TAB); return; }
 
-    const token = getAdminToken();
-    if (!token) return;
     let cancelled = false;
-    fetch("/api/admin-check", { headers: { "x-admin-token": token } })
-      .then((res) => {
-        if (cancelled || !res.ok) return;
-        setAdminPreview(true);
-        setActiveCategory(FIDGET_TAB);
-      })
-      .catch(() => { /* not admin — stays hidden */ });
+    checkAdmin().then((ok) => {
+      if (cancelled || !ok) return;
+      setAdminPreview(true);
+      setActiveCategory(FIDGET_TAB);
+    });
     return () => { cancelled = true; };
     // settings arrive with the page and never change after mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps

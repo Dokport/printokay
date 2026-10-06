@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getAdminToken } from "@/lib/adminSession";
+import { checkAdmin } from "@/lib/adminSession";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCart } from "@/lib/cartContext";
@@ -344,18 +344,14 @@ export default function KeyringConfigurator() {
   const [editingText, setEditingText] = useState(false);
   // Admin-only test download. Stays null for every normal visitor, so the block at
   // the bottom never renders for them. The token is only trusted once the SERVER has
-  // confirmed it — a made-up sessionStorage value must not reveal the panel. The
+  // confirmed it — a hand-set hint cookie must not reveal the panel. The
   // download route enforces the same check independently, so this is about not
   // showing controls that aren't yours, not about guarding the files.
-  const [adminToken, setAdminToken] = useState<string | null>(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
   const [testDl, setTestDl] = useState<"idle" | "busy" | "err">("idle");
   useEffect(() => {
-    const token = getAdminToken();
-    if (!token) return;
     let cancelled = false;
-    fetch("/api/admin-check", { headers: { "x-admin-token": token } })
-      .then((res) => { if (!cancelled && res.ok) setAdminToken(token); })
-      .catch(() => { /* not admin — leave hidden */ });
+    checkAdmin().then((ok) => { if (!cancelled && ok) setIsAdminUser(true); });
     return () => { cancelled = true; };
   }, []);
 
@@ -551,12 +547,12 @@ export default function KeyringConfigurator() {
 
   /** Build the current design as a real print file, bypassing cart and checkout. */
   async function downloadTestFile(format: "3mf" | "stl") {
-    if (!adminToken || !selectedSize) return;
+    if (!isAdminUser || !selectedSize) return;
     setTestDl("busy");
     try {
       const res = await fetch("/api/keyring/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: fullText, font, shapeType, holePosition,
           sizeId: selectedSize.id,
@@ -963,7 +959,7 @@ export default function KeyringConfigurator() {
         )}
 
         {/* Admin-only: grab the model as a print file without placing an order. */}
-        {adminToken && (
+        {isAdminUser && (
           <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
               Admin · testprint

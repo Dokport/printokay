@@ -14,7 +14,7 @@ import Link from "next/link";
 import { useCart } from "@/lib/cartContext";
 import { formatPrice } from "@/lib/products";
 import { detectWebGL } from "@/lib/webgl";
-import { getAdminToken } from "@/lib/adminSession";
+import { checkAdmin } from "@/lib/adminSession";
 import {
   MAX_CAP_CHARS, MAX_COLS, MAX_ROWS,
   calcFidgetPrice, exampleLabel, fidgetFilaments, switchCount, validateFidget,
@@ -74,15 +74,11 @@ export default function FidgetConfigurator() {
   // only trusted once the SERVER has confirmed it — the download route enforces the
   // same check independently, so this is about not showing controls that aren't
   // yours, not about guarding the files.
-  const [adminToken, setAdminToken] = useState<string | null>(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
   const [testDl, setTestDl] = useState<"idle" | "busy" | "err">("idle");
   useEffect(() => {
-    const token = getAdminToken();
-    if (!token) return;
     let cancelled = false;
-    fetch("/api/admin-check", { headers: { "x-admin-token": token } })
-      .then((res) => { if (!cancelled && res.ok) setAdminToken(token); })
-      .catch(() => { /* not admin — leave hidden */ });
+    checkAdmin().then((ok) => { if (!cancelled && ok) setIsAdminUser(true); });
     return () => { cancelled = true; };
   }, []);
 
@@ -170,12 +166,12 @@ export default function FidgetConfigurator() {
 
   /** Build the current design — or the stem comb — without cart or checkout. */
   async function downloadTestFile(tolerance = false) {
-    if (!adminToken) return;
+    if (!isAdminUser) return;
     setTestDl("busy");
     try {
       const res = await fetch("/api/fidget/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-token": adminToken },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           tolerance
             ? { tolerance: true, capColorHex: colourOf(capFilamentId), textColorHex: colourOf(textFilamentId) }
@@ -479,7 +475,7 @@ export default function FidgetConfigurator() {
         )}
 
         {/* Admin-only: grab the model as a print file without placing an order. */}
-        {adminToken && (
+        {isAdminUser && (
           <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
               Admin · testprint
