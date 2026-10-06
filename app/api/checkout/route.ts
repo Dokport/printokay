@@ -12,22 +12,21 @@ import { joinTextLines } from "@/lib/textpaths";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(req: NextRequest) {
-  const { items, shippingOptionId, promoCode, holderId }: {
-    items: CartItem[];
+  const { items: rawItems, shippingOptionId, promoCode, holderId }: {
+    items: unknown;
     shippingOptionId?: string;
     promoCode?: string;
     /** Stable per-browser id, so a customer can re-enter their own checkout. */
     holderId?: string;
   } = await req.json();
 
-  if (!items || items.length === 0) {
-    return NextResponse.json({ error: "Ingen varer" }, { status: 400 });
-  }
-
-  // Every amount below comes from here, never from the request body.
+  // Every amount below comes from here, never from the request body — and so does
+  // every item: priceCart validates the cart and rebuilds each item from the shop's
+  // own data. From here on `items` is that rebuilt list, not what was posted.
   const pricing = await loadPricing();
-  const priced = priceCart(items, pricing);
+  const priced = priceCart(rawItems, pricing);
   if (!priced.ok) return NextResponse.json({ error: priced.error }, { status: 400 });
+  const items: CartItem[] = priced.items;
   const unitPrices = priced.prices;
 
   const settings = pricing.settings;

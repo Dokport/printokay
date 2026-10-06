@@ -8,19 +8,20 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { loadPricing, priceCart } from "@/lib/pricing";
-import type { CartItem } from "@/lib/cart";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const items: CartItem[] = Array.isArray(body.items) ? body.items : [];
-  if (items.length === 0) return NextResponse.json({ prices: [], subtotal: 0 });
+  if (!Array.isArray(body.items) || body.items.length === 0) {
+    return NextResponse.json({ prices: [], subtotal: 0 });
+  }
 
   const pricing = await loadPricing();
-  const priced = priceCart(items, pricing);
+  const priced = priceCart(body.items, pricing);
   if (!priced.ok) return NextResponse.json({ error: priced.error }, { status: 400 });
 
+  // Quantities from the checked items — the raw ones could be negative or fractional.
   const subtotal = priced.prices.reduce(
-    (sum, price, i) => sum + price * (items[i].quantity || 1), 0
+    (sum, price, i) => sum + price * priced.items[i].quantity, 0
   );
   return NextResponse.json({ prices: priced.prices, subtotal });
 }

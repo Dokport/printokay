@@ -25,11 +25,13 @@ import { extractTextContours } from "./textpaths.server";
 import { type SiteSettings } from "./settings";
 import { readJsonFile } from "./storage";
 import { mergeSettings } from "./settingsMerge";
+import { validateCart } from "./cartValidation";
 
 export type Pricing = {
   settings: SiteSettings;
   /** The shop's own price for this item, or null if it no longer sells it. */
   priceOf(item: CartItem): number | null;
+  productById(id: string): Product | undefined;
 };
 
 export async function loadPricing(): Promise<Pricing> {
@@ -45,6 +47,7 @@ export async function loadPricing(): Promise<Pricing> {
 
   return {
     settings,
+    productById: (id) => byId.get(id),
     priceOf(item: CartItem): number | null {
       if (item.keyringData) {
         const size = sizes.find((s) => s.id === item.keyringData!.sizeId);
@@ -101,16 +104,25 @@ function keyringIsPrintable(item: CartItem, pricing: Pricing): boolean {
     );
     return lineCapHeight(kd.text, size) * textScale >= MIN_CAP_HEIGHT_MM;
   } catch (err) {
-    // Don't block a sale on a measurement we couldn't take.
+    // Refuse. This used to let the item through ("don't block a sale"), but the
+    // order is built from the very same geometry after payment — a keyring that
+    // can't be measured now can't be made then either, and by then it is paid for.
     console.error(`Kunne ikke måle nøglering "${kd.text}":`, err);
-    return true;
+    return false;
   }
 }
 
 export function priceCart(
-  items: CartItem[],
+  raw: unknown,
   pricing: Pricing
-): { ok: true; prices: number[] } | { ok: false; error: string } {
+): { ok: true; prices: number[]; items: CartItem[] } | { ok: false; error: string } {
+  // What the cart may contain, checked first and cheaply — before the per-keyring
+  // mesh build below can be made to run a thousand times by one request. The items
+  // that come back are rebuilt from the shop's own data; use them, not `raw`.
+  const checked = validateCart(raw, pricing.settings, pricing.productById);
+  if (!checked.ok) return checked;
+  const items = checked.items;
+
   const prices: number[] = [];
   for (const item of items) {
     if (item.keyringData && !keyringIsPrintable(item, pricing)) {
@@ -128,5 +140,5 @@ export function priceCart(
     }
     prices.push(price);
   }
-  return { ok: true, prices };
+  return { ok: true, prices, items };
 }
