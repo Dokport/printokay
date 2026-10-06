@@ -44,6 +44,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // If a new model file is uploaded, reset the Bambuddy sync state so the
   // sidecar re-uploads it and re-fetches stats for the new file.
   const prev = products[idx];
+  // "mv-…" is the public model version (lib/publicData), not a storage path — saving
+  // it would point the product at nothing. Treat it as "unchanged".
+  if (typeof body.modelFile === "string" && body.modelFile.startsWith("mv-")) delete body.modelFile;
+  if (typeof body.previewModel === "string" && body.previewModel.startsWith("mv-")) delete body.previewModel;
   const newModelFile = body.modelFile !== undefined ? body.modelFile : prev.modelFile;
   const modelChanged = body.modelFile !== undefined && body.modelFile !== prev.modelFile;
   // A new sliced print file means re-slice → re-sync to Bambuddy + new stats.

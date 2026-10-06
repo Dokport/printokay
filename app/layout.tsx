@@ -6,6 +6,7 @@ import { CartProvider } from "@/lib/cartContext";
 import Header from "@/components/Header";
 import { SiteSettings } from "@/lib/settings";
 import { readJsonFile } from "@/lib/storage";
+import { DEFAULT_SETTINGS } from "@/lib/settings";
 import { mergeSettings } from "@/lib/settingsMerge";
 
 export const dynamic = "force-dynamic";
@@ -28,11 +29,15 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const s = await loadSettings();
 
+  // These go into a raw <style> on every page, so each must be a plain hex colour —
+  // anything else ("red}</style><script>…") would break out of the stylesheet.
+  const hex = (v: unknown, fallback: string) =>
+    typeof v === "string" && /^#[0-9a-fA-F]{3,8}$/.test(v) ? v : fallback;
   const cssVars = `
     :root {
-      --color-primary: ${s.primaryColor};
-      --color-accent: ${s.accentColor};
-      --color-bg: ${s.bgColor};
+      --color-primary: ${hex(s.primaryColor, DEFAULT_SETTINGS.primaryColor)};
+      --color-accent: ${hex(s.accentColor, DEFAULT_SETTINGS.accentColor)};
+      --color-bg: ${hex(s.bgColor, DEFAULT_SETTINGS.bgColor)};
     }
   `;
 

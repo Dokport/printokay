@@ -166,11 +166,20 @@ export async function POST(req: NextRequest) {
   // Stash the full cart server-side, keyed by the session id. The webhook (and
   // the success-page fallback) read this back to build the order for ALL item
   // types — so order creation never depends on the customer's browser.
-  await writeJsonFile(pendingCartKey(session.id), {
-    items,
-    createdAt: new Date().toISOString(),
-    ...(promo ? { promo: { code: promo.code, discount: promo.discount } } : {}),
-  });
+  try {
+    await writeJsonFile(pendingCartKey(session.id), {
+      items,
+      createdAt: new Date().toISOString(),
+      ...(promo ? { promo: { code: promo.code, discount: promo.discount } } : {}),
+    });
+  } catch (err) {
+    // The order is built from this stash. Without it a customer could pay and no
+    // order would ever appear — so take the payment page back before they see it.
+    console.error("Kurven kunne ikke gemmes — betalingen trækkes tilbage:", err);
+    await stripe.checkout.sessions.expire(session.id).catch(() => {});
+    if (promo) await releasePromo(promo.code, reservationId);
+    return NextResponse.json({ error: "Kunne ikke starte betalingen. Prøv igen." }, { status: 500 });
+  }
 
   return NextResponse.json({ url: session.url });
 }

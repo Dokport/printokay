@@ -3,6 +3,7 @@ import { Product } from "@/lib/products";
 import { isAdmin } from "@/lib/isAdmin";
 import { readJsonFile, writeJsonFile } from "@/lib/storage";
 import { analyzeModel, meshCacheKey } from "@/lib/productModel";
+import { publicProduct } from "@/lib/publicData";
 
 async function readProducts(): Promise<Product[]> {
   return readJsonFile<Product[]>("products.json", []);
@@ -12,8 +13,11 @@ async function writeProducts(products: Product[]): Promise<void> {
   await writeJsonFile("products.json", products);
 }
 
-export async function GET() {
-  return NextResponse.json(await readProducts());
+// Admin edits these records and gets them whole; the shop gets publicProduct —
+// no costs, print times or storage paths.
+export async function GET(req: NextRequest) {
+  const products = await readProducts();
+  return NextResponse.json(isAdmin(req) ? products : products.map(publicProduct));
 }
 
 export async function POST(req: NextRequest) {
