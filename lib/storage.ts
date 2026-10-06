@@ -12,7 +12,7 @@
  * All functions are async so callers work the same way in both environments.
  */
 
-import { put, get, del, BlobPreconditionFailedError } from "@vercel/blob";
+import { put, get, del, head, BlobNotFoundError } from "@vercel/blob";
 import fs from "fs";
 import path from "path";
 
@@ -79,14 +79,35 @@ export async function updateJsonFile<T>(
 ): Promise<T> {
   if (!useBlob) return updateLocalJsonFile(filename, fallback, mutate);
 
+  const writePlain = async (next: T, why: string, err?: unknown) => {
+    console.warn(`[updateJsonFile] ${filename}: ${why} — skriver uden betingelse`, err ?? "");
+    await put(filename, JSON.stringify(next, null, 2), {
+      access: "private",
+      contentType: "application/json",
+      allowOverwrite: true,
+    });
+    return next;
+  };
+
   for (let attempt = 0; ; attempt++) {
-    const result = await get(filename, { access: "private", useCache: false });
-    let current = fallback;
-    let etag: string | undefined;
-    if (result && result.statusCode === 200 && result.stream) {
-      current = JSON.parse(await new Response(result.stream).text()) as T;
-      etag = result.blob.etag;
+    // The ETag must come from head(), which asks the Blob API — the same place the
+    // conditional write is checked. get() reports the ETag of the DOWNLOAD instead,
+    // a different value that never matches; using it failed every save.
+    //
+    // And it must be taken BEFORE the content is read. If someone writes in
+    // between, the content is then newer than the ETag and the write fails and
+    // retries; the other order would let a newer ETag bless stale content.
+    let etag: string | null;
+    try {
+      etag = await apiEtag(filename);
+    } catch (err) {
+      // Can't learn the version: do it the old way (minus treating a failed read
+      // as empty, which is the one thing that must never come back).
+      const next = await mutate(await readStrict(filename, fallback));
+      return next === null ? fallback : writePlain(next, "kunne ikke slå version op", err);
     }
+
+    const current = await readStrict(filename, fallback);
     const next = await mutate(current);
     if (next === null) return current;
 
@@ -94,35 +115,39 @@ export async function updateJsonFile<T>(
       await put(filename, JSON.stringify(next, null, 2), {
         access: "private",
         contentType: "application/json",
-        // An existing file must still be the one we read; a missing one must
-        // still be missing — otherwise someone created it meanwhile.
         ...(etag ? { allowOverwrite: true, ifMatch: etag } : { allowOverwrite: false }),
       });
       return next;
     } catch (err) {
-      const lostRace = etag
-        ? err instanceof BlobPreconditionFailedError
-        : (await get(filename, { access: "private", useCache: false })) !== null;
-      if (lostRace) {
-        if (attempt >= 9) throw err;
-        // Back off with jitter so two writers that collided don't collide again.
-        await new Promise((r) => setTimeout(r, 25 * 2 ** Math.min(attempt, 5) * (0.5 + Math.random())));
-        continue;
-      }
-      // Not a lost race, so the store refused the write itself. If what it refuses
-      // is the CONDITION, no conditional write will ever land and every order would
-      // fail to save. Fall back to what this did before — overwrite with the fresh
-      // copy just read — so the worst case is the old behaviour, never worse. The
-      // log line is how to tell, in production, whether that is happening.
-      console.warn(`[updateJsonFile] betinget skrivning af ${filename} afvist — falder tilbage til almindelig skrivning:`, err);
-      await put(filename, JSON.stringify(next, null, 2), {
-        access: "private",
-        contentType: "application/json",
-        allowOverwrite: true,
-      });
-      return next;
+      // Did anyone actually write in between? Only then is this a lost race worth
+      // retrying. A refusal while the file is still exactly the version we read
+      // means the condition itself can't be trusted, and every retry would fail
+      // the same way — so degrade to the old behaviour rather than fail the save.
+      const now = await apiEtag(filename).catch(() => undefined);
+      const someoneWrote = now !== undefined && now !== etag;
+      if (!someoneWrote) return writePlain(next, "betinget skrivning afvist uden samtidig ændring", err);
+      if (attempt >= 9) return writePlain(next, "blev ved med at kollidere", err);
+      // Back off with jitter so two writers that collided don't collide again.
+      await new Promise((r) => setTimeout(r, 25 * 2 ** Math.min(attempt, 5) * (0.5 + Math.random())));
     }
   }
+}
+
+/** The blob's version as the Blob API sees it, or null if there is no such blob. */
+async function apiEtag(filename: string): Promise<string | null> {
+  try {
+    return (await head(filename)).etag || null;
+  } catch (err) {
+    if (err instanceof BlobNotFoundError) return null;
+    throw err;
+  }
+}
+
+/** Like readJsonFile, but a failed read throws instead of looking like an empty file. */
+async function readStrict<T>(filename: string, fallback: T): Promise<T> {
+  const result = await get(filename, { access: "private", useCache: false });
+  if (!result || result.statusCode !== 200 || !result.stream) return fallback;
+  return JSON.parse(await new Response(result.stream).text()) as T;
 }
 
 /** Local dev is one process: serialise writers per file instead. */
