@@ -366,11 +366,6 @@ export default function KeyringConfigurator() {
   }, [shapeType, holePosition]);
 
   useEffect(() => {
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=Roboto:wght@700&family=Pacifico&family=Bebas+Neue&display=swap";
-    document.head.appendChild(link);
-
     fetch("/api/settings")
       .then((r) => r.json())
       .then((data) => {

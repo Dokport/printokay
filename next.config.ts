@@ -8,6 +8,27 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  // Headers for every response, API included. The Content-Security-Policy lives in
+  // proxy.ts because it needs a fresh nonce per request; HSTS is already sent by
+  // Vercel.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          // Don't let a browser second-guess a declared content type.
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // No other site may frame the shop or the admin (clickjacking); the CSP's
+          // frame-ancestors says the same to newer browsers.
+          { key: "X-Frame-Options", value: "DENY" },
+          // Other sites learn which site a visitor came from, not which page.
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // Nothing here uses these; refuse them so injected code can't either.
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

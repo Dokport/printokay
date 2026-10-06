@@ -36,3 +36,26 @@ textarea::placeholder {
   color: #6b7280;
   opacity: 1;
 }
+
+/*
+ * The keyring fonts, for the font picker and the 2D size preview. Served from our
+ * own /fonts — the same files the 3D model is cut from — rather than fetched from
+ * Google Fonts on every visit, which handed each visitor's address to Google and
+ * would need two foreign origins in the Content-Security-Policy.
+ */
+@font-face {
+  font-family: "Roboto";
+  src: url("/fonts/Roboto-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Pacifico";
+  src: url("/fonts/Pacifico-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: "Bebas Neue";
+  src: url("/fonts/BebasNeue-Regular.ttf") format("truetype");
+  font-display: swap;
+}
