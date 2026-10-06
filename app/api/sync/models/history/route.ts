@@ -8,8 +8,8 @@
  *   - totalCost: DKK øre
  */
 import { NextRequest, NextResponse } from "next/server";
-import { Product, PrintStats } from "@/lib/products";
-import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import type { PrintStats } from "@/lib/products";
+import { mutateProducts } from "@/lib/productStore";
 import { isSyncAuthed } from "@/lib/isSyncAuthed";
 
 export async function POST(req: NextRequest) {
@@ -22,12 +22,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "productId + printStats påkrævet" }, { status: 400 });
   }
 
-  const products = await readJsonFile<Product[]>("products.json", []);
-  const idx = products.findIndex((p) => p.id === productId);
-  if (idx === -1) {
-    return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
-  }
-
   const stats: PrintStats = {
     count: Math.max(0, Math.round(Number(printStats.count) || 0)),
     ...(printStats.totalGrams != null ? { totalGrams: Number(printStats.totalGrams) } : {}),
@@ -35,14 +29,15 @@ export async function POST(req: NextRequest) {
     ...(printStats.lastPrintedAt ? { lastPrintedAt: String(printStats.lastPrintedAt) } : {}),
   };
 
-  // Skip the Blob write when nothing changed (the sidecar may re-post identical
-  // history every cycle) — saves Vercel Blob operations.
-  if (JSON.stringify(products[idx].printStats) === JSON.stringify(stats)) {
-    return NextResponse.json({ ok: true, unchanged: true });
-  }
-
-  products[idx] = { ...products[idx], printStats: stats };
-
-  await writeJsonFile("products.json", products);
-  return NextResponse.json({ ok: true });
+  const outcome = await mutateProducts<"missing" | "unchanged" | "ok">((products) => {
+    const idx = products.findIndex((p) => p.id === productId);
+    if (idx === -1) return { result: "missing", changed: false };
+    // Skip the Blob write when nothing changed (the sidecar may re-post identical
+    // history every cycle) — saves Vercel Blob operations.
+    if (JSON.stringify(products[idx].printStats) === JSON.stringify(stats)) return { result: "unchanged", changed: false };
+    products[idx] = { ...products[idx], printStats: stats };
+    return { result: "ok", changed: true };
+  });
+  if (outcome === "missing") return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
+  return NextResponse.json(outcome === "unchanged" ? { ok: true, unchanged: true } : { ok: true });
 }

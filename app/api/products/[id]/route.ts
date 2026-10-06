@@ -2,28 +2,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { Product } from "@/lib/products";
 import { isAdmin } from "@/lib/isAdmin";
 import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import { mutateProducts } from "@/lib/productStore";
+
+/** Written by the printer sidecar, not the admin form. */
+const SIDECAR_KEYS = ["bambuddy", "bambuddyId", "bambuddyStatsAt", "modelSyncedAt", "printStats"] as const;
 import { analyzeModel, meshCacheKey } from "@/lib/productModel";
 
 async function readProducts(): Promise<Product[]> {
   return readJsonFile<Product[]>("products.json", []);
 }
 
-async function writeProducts(products: Product[]): Promise<void> {
-  await writeJsonFile("products.json", products);
-}
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!isAdmin(req)) return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
 
   const { id } = await params;
-  const products = await readProducts();
-  const updated = products.filter((p) => p.id !== id);
-
-  if (updated.length === products.length) {
-    return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
-  }
-
-  await writeProducts(updated);
+  const found = await mutateProducts((products) => {
+    const idx = products.findIndex((p) => p.id === id);
+    if (idx === -1) return { result: false, changed: false };
+    products.splice(idx, 1);
+    return { result: true, changed: true };
+  });
+  if (!found) return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
 
@@ -123,6 +123,34 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
   }
 
-  await writeProducts(products);
-  return NextResponse.json(products[idx]);
+  // Everything above worked on a snapshot, and the model analysis can take seconds
+  // while the sidecar keeps saving sync state and print statistics. So the write
+  // lays this edit over the CURRENT product: the admin's fields win, but what the
+  // sidecar owns comes from the fresh copy — unless a new sliced file was uploaded,
+  // which is exactly when that state has to be thrown away.
+  const edited = products[idx];
+  const saved = await mutateProducts<Product | null>((current) => {
+    const i = current.findIndex((x) => x.id === id);
+    if (i === -1) return { result: null, changed: false };
+    const merged: Product = { ...current[i], ...edited };
+    const keepFresh = (key: keyof Product) => {
+      if (current[i][key] === undefined) delete merged[key];
+      else (merged as Record<string, unknown>)[key] = current[i][key];
+    };
+    for (const key of SIDECAR_KEYS) {
+      if (printChanged) delete merged[key];
+      else keepFresh(key);
+    }
+    // Both the form and the sidecar's statistics write these. Only a value the
+    // admin actually filled in wins; otherwise the freshest one stays — saving a
+    // new name must not roll back print times the sidecar delivered a second ago.
+    if (!body.printMinutes) keepFresh("printMinutes");
+    if (!body.filamentGrams) keepFresh("filamentGrams");
+    if (!body.materialCost) keepFresh("materialCost");
+    if (!body.statsSource) keepFresh("statsSource");
+    current[i] = merged;
+    return { result: merged, changed: true };
+  });
+  if (!saved) return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
+  return NextResponse.json(saved);
 }

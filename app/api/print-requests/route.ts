@@ -9,7 +9,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { Product, PrintRequest } from "@/lib/products";
-import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import { readJsonFile, updateJsonFile } from "@/lib/storage";
 import { isAdmin } from "@/lib/isAdmin";
 import { isSyncAuthed } from "@/lib/isSyncAuthed";
 
@@ -66,7 +66,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const requests = await readJsonFile<PrintRequest[]>(FILE, []);
   const request: PrintRequest = {
     id: `pr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     productId,
@@ -76,8 +75,9 @@ export async function POST(req: NextRequest) {
     status: "open",
     createdAt: new Date().toISOString(),
   };
-  requests.unshift(request);
-  await writeJsonFile(FILE, requests);
+  // Added to the current list, not a copy read earlier — the sidecar marks requests
+  // done in the same file, and a stale copy would put them back to open.
+  await updateJsonFile<PrintRequest[]>(FILE, [], (requests) => [request, ...requests]);
 
   return NextResponse.json(request, { status: 201 });
 }

@@ -4,8 +4,7 @@
  * Body: { productId }
  */
 import { NextRequest, NextResponse } from "next/server";
-import { Product } from "@/lib/products";
-import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import { mutateProducts } from "@/lib/productStore";
 import { isSyncAuthed } from "@/lib/isSyncAuthed";
 
 export async function POST(req: NextRequest) {
@@ -18,21 +17,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "productId påkrævet" }, { status: 400 });
   }
 
-  const products = await readJsonFile<Product[]>("products.json", []);
-  const idx = products.findIndex((p) => p.id === productId);
-  if (idx === -1 || !products[idx].bambuddy) {
-    return NextResponse.json({ error: "Produkt/kobling ikke fundet" }, { status: 404 });
-  }
-
-  products[idx] = {
-    ...products[idx],
-    bambuddy: {
-      ...products[idx].bambuddy,
-      syncedName: products[idx].name,
-      syncedCategory: products[idx].category,
-    },
-  };
-
-  await writeJsonFile("products.json", products);
+  const found = await mutateProducts((products) => {
+    const idx = products.findIndex((p) => p.id === productId);
+    if (idx === -1 || !products[idx].bambuddy) return { result: false, changed: false };
+    products[idx] = {
+      ...products[idx],
+      bambuddy: {
+        ...products[idx].bambuddy,
+        syncedName: products[idx].name,
+        syncedCategory: products[idx].category,
+      },
+    };
+    return { result: true, changed: true };
+  });
+  if (!found) return NextResponse.json({ error: "Produkt/kobling ikke fundet" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

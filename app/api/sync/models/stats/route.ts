@@ -14,8 +14,7 @@
  * "estimate" update is ignored so we never regress to predicted numbers.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { Product } from "@/lib/products";
-import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import { mutateProducts } from "@/lib/productStore";
 import { isSyncAuthed } from "@/lib/isSyncAuthed";
 
 export async function POST(req: NextRequest) {
@@ -28,41 +27,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "productId påkrævet" }, { status: 400 });
   }
 
-  const products = await readJsonFile<Product[]>("products.json", []);
-  const idx = products.findIndex((p) => p.id === productId);
-  if (idx === -1) {
-    return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
-  }
-
   const incoming: "estimate" | "actual" = source === "actual" ? "actual" : "estimate";
+  const statsAt = new Date().toISOString();
 
-  // Don't let an estimate overwrite stats that came from a real print.
-  if (incoming === "estimate" && products[idx].statsSource === "actual") {
-    return NextResponse.json({ ok: true, skipped: "actual stats present" });
-  }
+  const outcome = await mutateProducts<"missing" | "skipped" | "unchanged" | "ok">((products) => {
+    const idx = products.findIndex((p) => p.id === productId);
+    if (idx === -1) return { result: "missing", changed: false };
+    // Don't let an estimate overwrite stats that came from a real print.
+    if (incoming === "estimate" && products[idx].statsSource === "actual") return { result: "skipped", changed: false };
 
-  const cur = products[idx];
-  const next = {
-    ...cur,
-    ...(printMinutes != null ? { printMinutes: Math.round(Number(printMinutes)) } : {}),
-    ...(filamentGrams != null ? { filamentGrams: Number(filamentGrams) } : {}),
-    ...(materialCost != null ? { materialCost: Math.round(Number(materialCost)) } : {}),
-    statsSource: incoming,
-  };
+    const cur = products[idx];
+    const next = {
+      ...cur,
+      ...(printMinutes != null ? { printMinutes: Math.round(Number(printMinutes)) } : {}),
+      ...(filamentGrams != null ? { filamentGrams: Number(filamentGrams) } : {}),
+      ...(materialCost != null ? { materialCost: Math.round(Number(materialCost)) } : {}),
+      statsSource: incoming,
+    };
+    // Skip the Blob write when the actual values didn't change (the sidecar may
+    // re-post identical stats every cycle) — saves Vercel Blob operations.
+    const unchanged =
+      next.printMinutes === cur.printMinutes &&
+      next.filamentGrams === cur.filamentGrams &&
+      next.materialCost === cur.materialCost &&
+      next.statsSource === cur.statsSource;
+    if (unchanged) return { result: "unchanged", changed: false };
+    products[idx] = { ...next, bambuddyStatsAt: statsAt };
+    return { result: "ok", changed: true };
+  });
 
-  // Skip the Blob write when the actual values didn't change (the sidecar may
-  // re-post identical stats every cycle) — saves Vercel Blob operations.
-  const unchanged =
-    next.printMinutes === cur.printMinutes &&
-    next.filamentGrams === cur.filamentGrams &&
-    next.materialCost === cur.materialCost &&
-    next.statsSource === cur.statsSource;
-  if (unchanged) {
-    return NextResponse.json({ ok: true, unchanged: true });
-  }
-
-  products[idx] = { ...next, bambuddyStatsAt: new Date().toISOString() };
-
-  await writeJsonFile("products.json", products);
-  return NextResponse.json({ ok: true });
+  if (outcome === "missing") return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
+  if (outcome === "skipped") return NextResponse.json({ ok: true, skipped: "actual stats present" });
+  return NextResponse.json(outcome === "unchanged" ? { ok: true, unchanged: true } : { ok: true });
 }

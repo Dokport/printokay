@@ -3,15 +3,13 @@ import { Product } from "@/lib/products";
 import { isAdmin } from "@/lib/isAdmin";
 import { readJsonFile, writeJsonFile } from "@/lib/storage";
 import { analyzeModel, meshCacheKey } from "@/lib/productModel";
+import { mutateProducts } from "@/lib/productStore";
 import { publicProduct } from "@/lib/publicData";
 
 async function readProducts(): Promise<Product[]> {
   return readJsonFile<Product[]>("products.json", []);
 }
 
-async function writeProducts(products: Product[]): Promise<void> {
-  await writeJsonFile("products.json", products);
-}
 
 // Admin edits these records and gets them whole; the shop gets publicProduct —
 // no costs, print times or storage paths.
@@ -24,7 +22,6 @@ export async function POST(req: NextRequest) {
   if (!isAdmin(req)) return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
 
   const body = await req.json();
-  const products = await readProducts();
 
   const images: string[] = body.images && body.images.length > 0
     ? body.images
@@ -62,8 +59,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  products.push(newProduct);
-  await writeProducts(products);
+  // Appended to the CURRENT list: the model analysis above can take seconds, and
+  // the sidecar may have saved products in the meantime.
+  await mutateProducts((products) => {
+    products.push(newProduct);
+    return { result: undefined, changed: true };
+  });
 
   return NextResponse.json(newProduct, { status: 201 });
 }

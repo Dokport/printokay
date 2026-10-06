@@ -9,8 +9,7 @@
  *   Body: { productId, bambuddyId }
  */
 import { NextRequest, NextResponse } from "next/server";
-import { Product } from "@/lib/products";
-import { readJsonFile, writeJsonFile } from "@/lib/storage";
+import { mutateProducts } from "@/lib/productStore";
 import { isSyncAuthed } from "@/lib/isSyncAuthed";
 
 export async function POST(req: NextRequest) {
@@ -23,41 +22,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "productId påkrævet" }, { status: 400 });
   }
 
-  const products = await readJsonFile<Product[]>("products.json", []);
-  const idx = products.findIndex((p) => p.id === productId);
-  if (idx === -1) {
-    return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
-  }
-
   const now = new Date().toISOString();
-
-  if (bambuddy && typeof bambuddy === "object") {
-    const link = {
-      ...(bambuddy.projectId != null ? { projectId: String(bambuddy.projectId) } : {}),
-      ...(bambuddy.folderId != null ? { folderId: String(bambuddy.folderId) } : {}),
-      ...(bambuddy.projectFileId != null ? { projectFileId: String(bambuddy.projectFileId) } : {}),
-      ...(bambuddy.printFileId != null ? { printFileId: String(bambuddy.printFileId) } : {}),
-      syncedAt: now,
-      // Remember the name/category we used, so a later rename can be detected.
-      syncedName: products[idx].name,
-      syncedCategory: products[idx].category,
-    };
-    products[idx] = {
-      ...products[idx],
-      bambuddy: link,
-      modelSyncedAt: now,
-      // Keep legacy id pointing at the sliced file so stats fetch still works.
-      ...(link.printFileId ? { bambuddyId: link.printFileId } : link.projectFileId ? { bambuddyId: link.projectFileId } : {}),
-    };
-  } else {
-    // Legacy single-file path.
-    products[idx] = {
-      ...products[idx],
-      modelSyncedAt: now,
-      ...(bambuddyId ? { bambuddyId: String(bambuddyId) } : {}),
-    };
-  }
-
-  await writeJsonFile("products.json", products);
+  const found = await mutateProducts((products) => {
+    const idx = products.findIndex((p) => p.id === productId);
+    if (idx === -1) return { result: false, changed: false };
+    if (bambuddy && typeof bambuddy === "object") {
+      const link = {
+        ...(bambuddy.projectId != null ? { projectId: String(bambuddy.projectId) } : {}),
+        ...(bambuddy.folderId != null ? { folderId: String(bambuddy.folderId) } : {}),
+        ...(bambuddy.projectFileId != null ? { projectFileId: String(bambuddy.projectFileId) } : {}),
+        ...(bambuddy.printFileId != null ? { printFileId: String(bambuddy.printFileId) } : {}),
+        syncedAt: now,
+        // Remember the name/category we used, so a later rename can be detected.
+        syncedName: products[idx].name,
+        syncedCategory: products[idx].category,
+      };
+      products[idx] = {
+        ...products[idx],
+        bambuddy: link,
+        modelSyncedAt: now,
+        // Keep legacy id pointing at the sliced file so stats fetch still works.
+        ...(link.printFileId ? { bambuddyId: link.printFileId } : link.projectFileId ? { bambuddyId: link.projectFileId } : {}),
+      };
+    } else {
+      // Legacy single-file path.
+      products[idx] = {
+        ...products[idx],
+        modelSyncedAt: now,
+        ...(bambuddyId ? { bambuddyId: String(bambuddyId) } : {}),
+      };
+    }
+    return { result: true, changed: true };
+  });
+  if (!found) return NextResponse.json({ error: "Produkt ikke fundet" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
