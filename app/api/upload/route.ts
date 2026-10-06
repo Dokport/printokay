@@ -3,6 +3,7 @@ import { put } from "@vercel/blob";
 import fs from "fs";
 import path from "path";
 import { isAdmin } from "@/lib/isAdmin";
+import { PRODUCT_IMAGE_TYPES } from "@/lib/productImage";
 
 export async function POST(req: NextRequest) {
   if (!isAdmin(req)) return NextResponse.json({ error: "Ikke tilladt" }, { status: 401 });
@@ -12,7 +13,15 @@ export async function POST(req: NextRequest) {
 
   if (!file) return NextResponse.json({ error: "Ingen fil" }, { status: 400 });
 
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+  // Only what /api/img will serve back — anything else would upload fine and then
+  // never display. No SVG: it can carry script.
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (!PRODUCT_IMAGE_TYPES[ext]) {
+    return NextResponse.json(
+      { error: `Kun billeder (${Object.keys(PRODUCT_IMAGE_TYPES).join(", ")})` },
+      { status: 400 }
+    );
+  }
   const filename = `products/${Date.now()}.${ext}`;
 
   if (process.env.BLOB_READ_WRITE_TOKEN) {
@@ -21,6 +30,7 @@ export async function POST(req: NextRequest) {
       // Return a proxy URL that the browser can load via /api/img.
       await put(filename, file, {
         access: "private",
+        contentType: PRODUCT_IMAGE_TYPES[ext],
         allowOverwrite: true,
       });
       const proxyUrl = `/api/img?p=${encodeURIComponent(filename)}`;
