@@ -9,7 +9,7 @@
  * Nothing the browser sends about the discount is trusted; the client's copy only
  * decides what the cart displays.
  */
-import { readJsonFile, writeJsonFile, createJsonFileIfAbsent } from "./storage";
+import { readJsonFile, updateJsonFile, createJsonFileIfAbsent } from "./storage";
 import type { CartItem } from "./cart";
 import { loadPricing, type Pricing } from "./pricing";
 
@@ -70,8 +70,24 @@ export async function readPromos(): Promise<PromoCode[]> {
   return Array.isArray(list) ? list : [];
 }
 
-async function writePromos(list: PromoCode[]): Promise<void> {
-  await writeJsonFile(PROMOS_FILE, list);
+/**
+ * The only way to change the code list. Checkout reserving, an order redeeming and
+ * the admin creating codes all save this one file, and a plain read-then-write let
+ * one of them undo another — a fresh batch of codes vanishing, or a redemption
+ * being rolled back so the code worked again. `change` edits the list in place and
+ * may run more than once, so it must do nothing else.
+ */
+async function mutatePromos<R>(
+  change: (list: PromoCode[]) => { result: R; changed: boolean }
+): Promise<R> {
+  let result!: R;
+  await updateJsonFile<PromoCode[]>(PROMOS_FILE, [], (raw) => {
+    const list = Array.isArray(raw) ? raw : [];
+    const outcome = change(list);
+    result = outcome.result;
+    return outcome.changed ? list : null;
+  });
+  return result;
 }
 
 export function promoStatus(p: PromoCode, now = Date.now()): PromoStatus {
@@ -152,30 +168,30 @@ export async function checkPromo(
  */
 export async function reservePromo(raw: string, holderId: string): Promise<boolean> {
   const code = normalizePromoCode(raw);
-  const list = await readPromos();
-  const promo = list.find((p) => p.code === code);
-  if (!promo) return false;
-
-  const status = promoStatus(promo);
-  if (status === "redeemed" || status === "expired") return false;
-  if (status === "reserved" && promo.reservedBy !== holderId) return false;
-
-  promo.reservedBy = holderId;
-  promo.reservedAt = new Date().toISOString();
-  await writePromos(list);
-  return true;
+  const now = new Date().toISOString();
+  return mutatePromos((list) => {
+    const promo = list.find((p) => p.code === code);
+    if (!promo) return { result: false, changed: false };
+    const status = promoStatus(promo);
+    if (status === "redeemed" || status === "expired") return { result: false, changed: false };
+    if (status === "reserved" && promo.reservedBy !== holderId) return { result: false, changed: false };
+    promo.reservedBy = holderId;
+    promo.reservedAt = now;
+    return { result: true, changed: true };
+  });
 }
 
 /** Hand a reservation back, e.g. when building the Stripe session failed. */
 export async function releasePromo(raw: string, holderId: string): Promise<void> {
   const code = normalizePromoCode(raw);
-  const list = await readPromos();
-  const promo = list.find((p) => p.code === code);
-  if (!promo || promo.reservedBy !== holderId || promo.redeemedAt) return;
-  delete promo.reservedBy;
-  delete promo.reservedAt;
-  delete promo.reservedSession;
-  await writePromos(list);
+  await mutatePromos((list) => {
+    const promo = list.find((p) => p.code === code);
+    if (!promo || promo.reservedBy !== holderId || promo.redeemedAt) return { result: undefined, changed: false };
+    delete promo.reservedBy;
+    delete promo.reservedAt;
+    delete promo.reservedSession;
+    return { result: undefined, changed: true };
+  });
 }
 
 /**
@@ -189,11 +205,12 @@ export async function setReservationSession(
   sessionId: string
 ): Promise<void> {
   const code = normalizePromoCode(raw);
-  const list = await readPromos();
-  const promo = list.find((p) => p.code === code);
-  if (!promo || promo.reservedBy !== holderId || promo.redeemedAt) return;
-  promo.reservedSession = sessionId;
-  await writePromos(list);
+  await mutatePromos((list) => {
+    const promo = list.find((p) => p.code === code);
+    if (!promo || promo.reservedBy !== holderId || promo.redeemedAt) return { result: undefined, changed: false };
+    promo.reservedSession = sessionId;
+    return { result: undefined, changed: true };
+  });
 }
 
 // ─── Redemption claim ─────────────────────────────────────────────────────────
@@ -237,61 +254,65 @@ export async function redeemPromo(
   email?: string
 ): Promise<PromoCode | null> {
   const code = normalizePromoCode(raw);
-  const list = await readPromos();
-  const promo = list.find((p) => p.code === code);
-  if (!promo) return null;
-  if (promo.redeemedAt) return promo;
-
-  promo.redeemedAt = new Date().toISOString();
-  promo.redeemedOrderId = orderId;
-  if (email) promo.redeemedEmail = email;
-  delete promo.reservedBy;
-  delete promo.reservedAt;
-  delete promo.reservedSession;
-  await writePromos(list);
-  return promo;
+  const now = new Date().toISOString();
+  return mutatePromos<PromoCode | null>((list) => {
+    const promo = list.find((p) => p.code === code);
+    if (!promo) return { result: null, changed: false };
+    if (promo.redeemedAt) return { result: promo, changed: false };
+    promo.redeemedAt = now;
+    promo.redeemedOrderId = orderId;
+    if (email) promo.redeemedEmail = email;
+    delete promo.reservedBy;
+    delete promo.reservedAt;
+    delete promo.reservedSession;
+    return { result: promo, changed: true };
+  });
 }
 
 export async function createPromos(
   count: number,
   fields: { note?: string; expiresAt?: string } = {}
 ): Promise<PromoCode[]> {
-  const list = await readPromos();
-  const existing = new Set(list.map((p) => p.code));
-  const made: PromoCode[] = [];
-
-  for (let i = 0; i < Math.max(1, Math.min(count, 100)); i++) {
-    let code = generatePromoCode();
-    while (existing.has(code)) code = generatePromoCode();
-    existing.add(code);
-    made.push({
-      code,
-      createdAt: new Date().toISOString(),
-      reward: "free-keyring",
-      ...(fields.note ? { note: fields.note } : {}),
-      ...(fields.expiresAt ? { expiresAt: fields.expiresAt } : {}),
-    });
-  }
-
-  await writePromos([...made, ...list]);
-  return made;
+  const now = new Date().toISOString();
+  return mutatePromos((list) => {
+    const existing = new Set(list.map((p) => p.code));
+    const made: PromoCode[] = [];
+    for (let i = 0; i < Math.max(1, Math.min(count, 100)); i++) {
+      let code = generatePromoCode();
+      while (existing.has(code)) code = generatePromoCode();
+      existing.add(code);
+      made.push({
+        code,
+        createdAt: now,
+        reward: "free-keyring",
+        ...(fields.note ? { note: fields.note } : {}),
+        ...(fields.expiresAt ? { expiresAt: fields.expiresAt } : {}),
+      });
+    }
+    list.unshift(...made);
+    return { result: made, changed: true };
+  });
 }
 
 export async function markPromoSent(code: string, email: string): Promise<void> {
-  const list = await readPromos();
-  const promo = list.find((p) => p.code === normalizePromoCode(code));
-  if (!promo) return;
-  promo.sentTo = email;
-  promo.sentAt = new Date().toISOString();
-  await writePromos(list);
+  const wanted = normalizePromoCode(code);
+  const now = new Date().toISOString();
+  await mutatePromos((list) => {
+    const promo = list.find((p) => p.code === wanted);
+    if (!promo) return { result: undefined, changed: false };
+    promo.sentTo = email;
+    promo.sentAt = now;
+    return { result: undefined, changed: true };
+  });
 }
 
 /** Only unused codes can be deleted — a redeemed one is a receipt. */
 export async function deletePromo(code: string): Promise<boolean> {
   const wanted = normalizePromoCode(code);
-  const list = await readPromos();
-  const promo = list.find((p) => p.code === wanted);
-  if (!promo || promo.redeemedAt) return false;
-  await writePromos(list.filter((p) => p.code !== wanted));
-  return true;
+  return mutatePromos((list) => {
+    const idx = list.findIndex((p) => p.code === wanted);
+    if (idx === -1 || list[idx].redeemedAt) return { result: false, changed: false };
+    list.splice(idx, 1);
+    return { result: true, changed: true };
+  });
 }

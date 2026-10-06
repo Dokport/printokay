@@ -12,7 +12,7 @@
  * All functions are async so callers work the same way in both environments.
  */
 
-import { put, get, del } from "@vercel/blob";
+import { put, get, del, BlobPreconditionFailedError } from "@vercel/blob";
 import fs from "fs";
 import path from "path";
 
@@ -53,6 +53,103 @@ export async function writeJsonFile<T>(filename: string, data: T): Promise<void>
   const filePath = path.join(process.cwd(), "data", filename);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+/**
+ * Read, change and write back a shared JSON file without losing anyone else's
+ * change made in between.
+ *
+ * Several things save the same file — a new order, the admin marking it printed,
+ * the printer sidecar marking it synced — and a plain read-then-write lets the
+ * slower writer silently overwrite the faster one. Here the write only lands if
+ * the file is still the version that was read (its ETag); otherwise it is read
+ * again and `mutate` re-applied to the fresh copy. So `mutate` must be a pure
+ * function of what it is given: it can run more than once.
+ *
+ * Unlike readJsonFile, a failed read is an ERROR, never "the file is empty" —
+ * treating a network hiccup as an empty order list and saving that would wipe
+ * every order. Only a missing file starts from `fallback`.
+ *
+ * `mutate` may return null to say "nothing to change", which skips the write.
+ */
+export async function updateJsonFile<T>(
+  filename: string,
+  fallback: T,
+  mutate: (current: T) => T | null | Promise<T | null>
+): Promise<T> {
+  if (!useBlob) return updateLocalJsonFile(filename, fallback, mutate);
+
+  for (let attempt = 0; ; attempt++) {
+    const result = await get(filename, { access: "private", useCache: false });
+    let current = fallback;
+    let etag: string | undefined;
+    if (result && result.statusCode === 200 && result.stream) {
+      current = JSON.parse(await new Response(result.stream).text()) as T;
+      etag = result.blob.etag;
+    }
+    const next = await mutate(current);
+    if (next === null) return current;
+
+    try {
+      await put(filename, JSON.stringify(next, null, 2), {
+        access: "private",
+        contentType: "application/json",
+        // An existing file must still be the one we read; a missing one must
+        // still be missing — otherwise someone created it meanwhile.
+        ...(etag ? { allowOverwrite: true, ifMatch: etag } : { allowOverwrite: false }),
+      });
+      return next;
+    } catch (err) {
+      const lostRace = etag
+        ? err instanceof BlobPreconditionFailedError
+        : (await get(filename, { access: "private", useCache: false })) !== null;
+      if (lostRace) {
+        if (attempt >= 9) throw err;
+        // Back off with jitter so two writers that collided don't collide again.
+        await new Promise((r) => setTimeout(r, 25 * 2 ** Math.min(attempt, 5) * (0.5 + Math.random())));
+        continue;
+      }
+      // Not a lost race, so the store refused the write itself. If what it refuses
+      // is the CONDITION, no conditional write will ever land and every order would
+      // fail to save. Fall back to what this did before — overwrite with the fresh
+      // copy just read — so the worst case is the old behaviour, never worse. The
+      // log line is how to tell, in production, whether that is happening.
+      console.warn(`[updateJsonFile] betinget skrivning af ${filename} afvist — falder tilbage til almindelig skrivning:`, err);
+      await put(filename, JSON.stringify(next, null, 2), {
+        access: "private",
+        contentType: "application/json",
+        allowOverwrite: true,
+      });
+      return next;
+    }
+  }
+}
+
+/** Local dev is one process: serialise writers per file instead. */
+const localQueues = new Map<string, Promise<unknown>>();
+
+function updateLocalJsonFile<T>(
+  filename: string,
+  fallback: T,
+  mutate: (current: T) => T | null | Promise<T | null>
+): Promise<T> {
+  const run = async (): Promise<T> => {
+    const filePath = path.join(process.cwd(), "data", filename);
+    let current = fallback;
+    try {
+      current = JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+    const next = await mutate(current);
+    if (next === null) return current;
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
+    return next;
+  };
+  const queued = (localQueues.get(filename) ?? Promise.resolve()).then(run, run);
+  localQueues.set(filename, queued.catch(() => undefined));
+  return queued;
 }
 
 /**

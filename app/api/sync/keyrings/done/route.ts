@@ -4,7 +4,7 @@
  *   Body: { stlId, bambuddy: { fileId, folderId } }
  */
 import { NextRequest, NextResponse } from "next/server";
-import { readOrders, writeOrders } from "@/lib/orders";
+import { mutateOrders } from "@/lib/orders";
 import { KEYRING_3MF_VERSION } from "@/lib/keyring3mf";
 import { isSyncAuthed } from "@/lib/isSyncAuthed";
 
@@ -18,25 +18,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "stlId påkrævet" }, { status: 400 });
   }
 
-  const orders = await readOrders();
-  let found = false;
-  for (const o of orders) {
-    for (const it of o.items) {
-      const k = it.keyring;
-      if (k && k.stlId === stlId) {
-        k.bambuddySyncedAt = new Date().toISOString();
-        k.bambuddyFormatVersion = KEYRING_3MF_VERSION;
-        if (bambuddy?.fileId != null) k.bambuddyFileId = String(bambuddy.fileId);
-        if (bambuddy?.folderId != null) k.bambuddyFolderId = String(bambuddy.folderId);
-        found = true;
+  // Through mutateOrders, not read-then-write: a new order landing while this
+  // runs would otherwise be overwritten by the copy read here.
+  const syncedAt = new Date().toISOString();
+  const found = await mutateOrders((orders) => {
+    let hit = false;
+    for (const o of orders) {
+      for (const it of o.items) {
+        const k = it.keyring;
+        if (k && k.stlId === stlId) {
+          k.bambuddySyncedAt = syncedAt;
+          k.bambuddyFormatVersion = KEYRING_3MF_VERSION;
+          if (bambuddy?.fileId != null) k.bambuddyFileId = String(bambuddy.fileId);
+          if (bambuddy?.folderId != null) k.bambuddyFolderId = String(bambuddy.folderId);
+          hit = true;
+        }
       }
     }
-  }
+    return { result: hit, changed: hit };
+  });
 
   if (!found) {
     return NextResponse.json({ error: "Nøglering ikke fundet" }, { status: 404 });
   }
 
-  await writeOrders(orders);
   return NextResponse.json({ ok: true });
 }

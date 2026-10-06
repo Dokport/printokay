@@ -13,6 +13,7 @@
  * checkout, so we never depend on the browser to supply order contents.
  */
 
+import { createHash } from "crypto";
 import Stripe from "stripe";
 import type { CartItem } from "./cart";
 import { DEFAULT_KEYRING_SETTINGS } from "./keyring";
@@ -181,6 +182,12 @@ async function buildOrderItem(
  * order if one already exists for this session, and a no-op (null) if the
  * session isn't paid or there's no stashed cart to build from.
  */
+/** Stable per purchase: the session's creation time plus a short hash of its id. */
+function orderIdForSession(session: Stripe.Checkout.Session): string {
+  const hash = createHash("sha256").update(session.id).digest("hex").slice(0, 6);
+  return `order-${session.created}-${hash}`;
+}
+
 export async function finalizeOrder(sessionId: string): Promise<Order | null> {
   // Idempotency — never create a second order for the same session.
   const existing = await findOrderBySession(sessionId);
@@ -206,7 +213,11 @@ export async function finalizeOrder(sessionId: string): Promise<Order | null> {
   const pricing = await loadPricing();
   const settings = pricing.settings;
 
-  const orderId = `order-${Date.now()}`;
+  // Derived from the session, not the clock: the webhook and the success page
+  // finalize the same purchase at the same moment, and with a clock-based id each
+  // emailed the customer its own order number while only one of them was kept.
+  // Same session → same id → same STL paths, so the loser writes identical files.
+  const orderId = orderIdForSession(session);
   const items: OrderItem[] = [];
   for (let i = 0; i < cart.items.length; i++) {
     // Price from the shop, not from the stashed cart — the same rule checkout used.
@@ -247,7 +258,10 @@ export async function finalizeOrder(sessionId: string): Promise<Order | null> {
     ...(promoConflict ? { promoConflict } : {}),
   };
 
-  const saved = await addOrder(order);
+  const { order: saved, created } = await addOrder(order);
+  // The other caller for this session won. It burns the code, cleans up and sends
+  // the confirmation; doing any of that again here would double it.
+  if (!created) return saved;
 
   // Mark the code used in the admin list. The claim above is what actually
   // decides; this is bookkeeping, so a failure here is logged, not fatal.

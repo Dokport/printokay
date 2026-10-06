@@ -1,5 +1,5 @@
 import type { KeyringConfig, KeyringSizeOption } from "./keyring";
-import { readJsonFile, writeJsonFile, readBinaryFile, writeBinaryFile } from "./storage";
+import { readJsonFile, updateJsonFile, readBinaryFile, writeBinaryFile } from "./storage";
 
 // ─── Universal order model ──────────────────────────────────────────────────────
 //
@@ -148,8 +148,7 @@ function migrateLegacy(o: LegacyKeyringOrder): Order {
 
 // ─── Orders JSON ──────────────────────────────────────────────────────────────
 
-export async function readOrders(): Promise<Order[]> {
-  const raw = await readJsonFile<unknown[]>("orders.json", []);
+function migrateOrders(raw: unknown[]): Order[] {
   return raw.map((o) => {
     const rec = o as Record<string, unknown>;
     // New-style records already have an items array.
@@ -159,18 +158,46 @@ export async function readOrders(): Promise<Order[]> {
   });
 }
 
-export async function writeOrders(orders: Order[]): Promise<void> {
-  await writeJsonFile("orders.json", orders);
+export async function readOrders(): Promise<Order[]> {
+  return migrateOrders(await readJsonFile<unknown[]>("orders.json", []));
+}
+
+/**
+ * Change the order list without losing a concurrent change — the ONLY way to
+ * write orders. New orders, the admin marking one printed and the sidecar marking
+ * items synced all save this one file; a plain read-then-write let whichever was
+ * slower overwrite the other, and a paid order could vanish.
+ *
+ * `change` edits the list in place and may run more than once (it is re-applied
+ * to a fresh copy if someone else saved first), so it must not do anything but
+ * edit the list. Return false to say nothing changed and skip the write.
+ */
+export async function mutateOrders<R>(
+  change: (orders: Order[]) => { result: R; changed: boolean }
+): Promise<R> {
+  let result!: R;
+  await updateJsonFile<unknown[]>("orders.json", [], (raw) => {
+    const orders = migrateOrders(raw);
+    const outcome = change(orders);
+    result = outcome.result;
+    return outcome.changed ? orders : null;
+  });
+  return result;
 }
 
 /** Append an order, deduping by Stripe session id (idempotent). */
-export async function addOrder(order: Order): Promise<Order> {
-  const orders = await readOrders();
-  const existing = orders.find((o) => o.stripeSessionId === order.stripeSessionId);
-  if (existing) return existing;
-  orders.unshift(order);
-  await writeOrders(orders);
-  return order;
+/**
+ * Record an order once per Stripe session. `created` is false when another call
+ * for the same session got there first (webhook and success page race by
+ * design) — the caller then must not send a second confirmation.
+ */
+export async function addOrder(order: Order): Promise<{ order: Order; created: boolean }> {
+  return mutateOrders<{ order: Order; created: boolean }>((orders) => {
+    const existing = orders.find((o) => o.stripeSessionId === order.stripeSessionId);
+    if (existing) return { result: { order: existing, created: false }, changed: false };
+    orders.unshift(order);
+    return { result: { order, created: true }, changed: true };
+  });
 }
 
 export async function findOrderBySession(sessionId: string): Promise<Order | undefined> {
@@ -182,12 +209,12 @@ export async function updateOrderStatus(
   orderId: string,
   status: "pending" | "printed"
 ): Promise<void> {
-  const orders = await readOrders();
-  const idx = orders.findIndex((o) => o.id === orderId);
-  if (idx !== -1) {
-    orders[idx].status = status;
-    await writeOrders(orders);
-  }
+  await mutateOrders((orders) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order || order.status === status) return { result: undefined, changed: false };
+    order.status = status;
+    return { result: undefined, changed: true };
+  });
 }
 
 // ─── STL files ────────────────────────────────────────────────────────────────
